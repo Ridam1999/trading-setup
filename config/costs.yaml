@@ -1,0 +1,13 @@
+# Illustrative placeholders only. Verify current charges before relying on results.
+delivery_equity:
+  brokerage_pct: 0.0
+  brokerage_flat_per_order: 0.0
+  stt_pct_buy: 0.10
+  stt_pct_sell: 0.10
+  exchange_txn_pct: 0.00297
+  sebi_fee_pct: 0.0001
+  stamp_duty_pct_buy: 0.015
+  gst_pct: 18
+  dp_charge_per_sell_scrip: 15.34
+slippage_bps: 10
+stress_multipliers: [1.0, 1.5, 2.0]

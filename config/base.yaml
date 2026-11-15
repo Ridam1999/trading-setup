@@ -1,0 +1,4 @@
+app_name: nse-setup-research-engine
+timezone: Asia/Kolkata
+log_level: INFO
+random_seed: 20261115

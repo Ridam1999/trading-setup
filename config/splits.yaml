@@ -1,0 +1,9 @@
+train:
+  start: 2005-01-01
+  end: 2017-12-31
+validation:
+  start: 2018-01-01
+  end: 2022-12-31
+holdout:
+  start: 2023-01-01
+  end: latest

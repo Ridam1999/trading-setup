@@ -1,0 +1,13 @@
+raw_dir: data/raw
+adjusted_dir: data/adjusted
+duckdb_path: data/duckdb/nse.duckdb
+reports_dir: reports
+minimum_analysis_date: 2005-01-01
+maximum_single_day_return_pct: 100.0
+maximum_adjusted_raw_difference_pct: 2.0
+stale_close_days: 5
+retry_attempts: 3
+retry_wait_seconds: 1.0
+request_timeout_seconds: 30
+nse_bhavcopy_url: null
+holidays: []

@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nse-setup-research-engine"
+version = "0.1.0"
+description = "Local research engine for rule-based NSE equity setups"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic==2.14.3",
+  "PyYAML==6.0.2",
+  "duckdb==2.0.0",
+  "httpx==0.28.1",
+  "numpy==2.4.6",
+  "pandas==3.1.1",
+  "pyarrow==26.0.1",
+  "tenacity==9.2.1",
+  "typer==0.15.1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy==1.15.0",
+  "pytest==8.3.4",
+  "ruff==0.9.7",
+  "types-PyYAML==6.0.12.20261113",
+]
+
+[project.scripts]
+nse-engine = "nse_engine.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nse_engine"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+mypy_path = "src"
+strict = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
