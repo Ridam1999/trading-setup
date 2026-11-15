@@ -31,10 +31,19 @@ def test_import_check_and_summary_commands(tmp_path: Path, monkeypatch) -> None:
         "name: test_universe\nsymbols: [AAA, BBB]\nsurvivorship_biased: true\n",
         encoding="utf-8",
     )
+    (config_dir / "study.yaml").write_text("benchmark_symbol: NIFTYBEES\n", encoding="utf-8")
     monkeypatch.setenv("NSE_ENGINE_CONFIG_DIR", str(config_dir))
-    fixture = Path("tests/fixtures/eod2_sample.csv").resolve()
+    eod2_directory = tmp_path / "eod2_data" / "daily"
+    eod2_directory.mkdir(parents=True)
+    for symbol, rows in {
+        "AAA": "2024-01-02,100,105,99,104,12000\n2024-01-03,104,106,102,105,15000\n",
+        "BBB": "2024-01-02,50,52,49,51,8000\n2024-01-03,51,53,50,52,9000\n",
+    }.items():
+        (eod2_directory / f"{symbol}.csv").write_text(
+            f"DATE,OPEN,HIGH,LOW,CLOSE,VOLUME\n{rows}", encoding="utf-8"
+        )
 
-    imported = runner.invoke(app, ["data", "import-eod2", "--path", str(fixture)])
+    imported = runner.invoke(app, ["data", "import-eod2", "--path", str(eod2_directory)])
     assert imported.exit_code == 0, imported.output
     bhavcopy = Path("tests/fixtures/bhavcopy_legacy_sample.csv").resolve()
     updated = runner.invoke(app, ["data", "update", "--path", str(bhavcopy)])
@@ -45,6 +54,7 @@ def test_import_check_and_summary_commands(tmp_path: Path, monkeypatch) -> None:
 
     assert summary.exit_code == 0, summary.output
     assert '"rows": 4' in summary.output
+    assert '"benchmark_present": false' in summary.output
     report = tmp_path / "reports" / "data_health.html"
     assert report.is_file()
     assert "Static universe; survivorship bias likely" in report.read_text(encoding="utf-8")

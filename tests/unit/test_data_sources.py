@@ -35,6 +35,24 @@ def test_eod2_source_normalizes_adjusted_prices() -> None:
     assert frame["close_raw"].isna().all()
 
 
+def test_eod2_source_imports_directory_of_symbol_files(tmp_path: Path) -> None:
+    """Per-symbol files without a ticker column get their symbols from filenames."""
+    (tmp_path / "reliance.csv").write_text(
+        "Date,Open,High,Low,Close,Volume\n2024-01-02,100,105,99,104,1000\n",
+        encoding="utf-8",
+    )
+    (tmp_path / "NIFTYBEES.csv").write_text(
+        "Date,Open,High,Low,Close,Volume\n2024-01-02,250,252,249,251,2000\n",
+        encoding="utf-8",
+    )
+
+    frame = EOD2Source().load(tmp_path)
+
+    assert frame["symbol"].tolist() == ["NIFTYBEES", "RELIANCE"]
+    assert frame["close"].tolist() == [251, 104]
+    assert frame["source"].eq("eod2_adjusted").all()
+
+
 @pytest.mark.parametrize(
     ("fixture", "expected_date"),
     [("bhavcopy_legacy_sample.csv", "2024-01-02"), ("bhavcopy_udiff_sample.csv", "2024-01-03")],

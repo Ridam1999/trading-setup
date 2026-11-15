@@ -178,8 +178,22 @@ def data_summary() -> None:
     """Print coverage and date range from the local data store."""
     store, _settings = _store()
     frame = store.read_ohlcv()
+    study_document = load_config().documents.get("study", {})
+    benchmark = study_document.get("benchmark_symbol")
+    if not isinstance(benchmark, str):
+        benchmark = None
     if frame.empty:
-        typer.echo("No market data loaded.")
+        typer.echo(
+            json.dumps(
+                {
+                    "rows": 0,
+                    "symbols": 0,
+                    "benchmark_symbol": benchmark,
+                    "benchmark_present": False,
+                },
+                indent=2,
+            )
+        )
         return
     years = pd.to_datetime(frame["date"]).dt.year
     typer.echo(
@@ -187,6 +201,10 @@ def data_summary() -> None:
             {
                 "rows": len(frame),
                 "symbols": int(frame["symbol"].nunique()),
+                "benchmark_symbol": benchmark,
+                "benchmark_present": (
+                    bool(frame["symbol"].eq(benchmark).any()) if benchmark is not None else False
+                ),
                 "start_date": str(frame["date"].min()),
                 "end_date": str(frame["date"].max()),
                 "coverage_by_year": frame.assign(year=years)

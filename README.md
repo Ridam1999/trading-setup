@@ -17,13 +17,15 @@ The setup target builds the pinned dependencies and project wheel in `.venv`. Th
 ### Phase 1: daily data
 
 ```sh
-uv run --no-sync nse-engine data import-eod2 --path /path/to/eod2.csv
+uv run --no-sync nse-engine data import-eod2 --path /path/to/eod2_data/daily
 uv run --no-sync nse-engine data update --path /path/to/bhavcopy.zip
 uv run --no-sync nse-engine data check
 uv run --no-sync nse-engine data summary
 ```
 
 `data update` also accepts `--url` or `nse_bhavcopy_url` in `config/data.yaml`; downloads retry and are written only after a non-empty response. Data is stored under `data/adjusted/` as year-partitioned Parquet and in `data/duckdb/nse.duckdb`. The health report is written to `reports/data_health.html`. For daily updates, configure a current NSE bhavcopy URL or provide a local downloaded file. Weekdays are treated as sessions except dates in `config/data.yaml` `holidays`; update that list for exchange holidays and special sessions.
+
+`data import-eod2` accepts either one CSV or a directory of per-symbol CSV files. For EOD2's per-symbol files, the importer uses each filename as the symbol when no ticker column is present. `data summary` reports whether the configured benchmark (NIFTYBEES by default) was imported.
 
 ### Phase 2: event studies
 
@@ -58,4 +60,4 @@ Backtests read only configurations listed in config/approved_setups.yaml; genera
 5. UI and reports: not started.
 6. Broker interface: not started; live orders remain disabled.
 
-See [docs/STATUS.md](docs/STATUS.md) for verification and manual prerequisites, and [docs/SPEC.md](docs/SPEC.md) for requirements and acceptance criteria.
+See [docs/STATUS.md](docs/STATUS.md) for verification and manual prerequisites, [docs/REAL_DATA_RUNBOOK.md](docs/REAL_DATA_RUNBOOK.md) for the adapted EOD2 workflow, and [docs/SPEC.md](docs/SPEC.md) for requirements and acceptance criteria.
