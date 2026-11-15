@@ -50,12 +50,12 @@ Backtests read only configurations listed in config/approved_setups.yaml; genera
 
 ## Project phases
 
-0. Bootstrap: tooling, config, CLI, logging.
-1. Data: adjusted daily data, storage, quality checks.
-2. Event study: setups, statistics, trial registry, validation gates.
-3. Portfolio backtest: simulator and walk-forward analysis.
-4. Paper trading: scanner, simulated fills and ledger.
-5. UI and reports: dashboard and charts.
-6. Broker interface: simulated interfaces only; live orders remain disabled.
+0. Bootstrap: complete.
+1. Data: implementation complete; market history not loaded.
+2. Event study: implementation complete; real-data trials and setup approvals pending.
+3. Portfolio backtest: implementation complete; synthetic acceptance passes, real-data run pending.
+4. Paper trading: not started.
+5. UI and reports: not started.
+6. Broker interface: not started; live orders remain disabled.
 
-See [docs/SPEC.md](docs/SPEC.md) for requirements and acceptance criteria.
+See [docs/STATUS.md](docs/STATUS.md) for verification and manual prerequisites, and [docs/SPEC.md](docs/SPEC.md) for requirements and acceptance criteria.
