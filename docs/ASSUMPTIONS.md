@@ -6,3 +6,5 @@
 - Phase 0 supplies a minimal Pydantic YAML config loader, Typer CLI, and logging setup. It does not implement Phase 1+ behavior.
 - Phase 1 treats EOD2 close data as already adjusted and records NSE bhavcopy close in `close_raw`. The calendar models Monday-Friday sessions and relies on the configured holiday list; exceptional weekend sessions must be added explicitly in a later calendar enhancement.
 - Universe membership is static unless point-in-time dates are supplied. The default empty symbol list is marked survivorship-biased.
+- Phase 2 uses the adjusted `close` series for indicator, entry, and exit calculations; `close_raw` is retained only for comparison. The event-study baseline uses same-date, same-liquidity-filter eligible rows, and its regime-matched version pools eligible rows with the same benchmark trend/volatility labels.
+- Setup sweep grids are finite YAML-declared values. A setup remains unapproved until the required neighbor values and train, validation, and explicitly unlocked holdout trials exist in the append-only registry.

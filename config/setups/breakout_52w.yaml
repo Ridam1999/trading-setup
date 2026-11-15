@@ -1,0 +1,18 @@
+name: breakout_52w
+universe: nse_equities
+rationale: >-
+  A close at a one-year high may reflect persistent demand and positive information
+  diffusion; above-average volume is used to screen for participation behind the move.
+params:
+  high_lookback: 252
+  volume_average_window: 20
+  volume_multiple: 1.5
+  traded_value_window: 20
+filters:
+  minimum_price: 20
+  minimum_average_traded_value: 5000000
+exit_rules:
+  stop_loss_pct: 8
+  target_pct: 20
+sweep_grid:
+  volume_multiple: [1.25, 1.5, 2.0]

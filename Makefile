@@ -14,5 +14,8 @@ lint:
 	uv run --no-sync ruff check src tests
 	uv run --no-sync ruff format --check src tests
 
-data study backtest paper ui:
+study:
+	uv run --no-sync nse-engine study --help
+
+data backtest paper ui:
 	@echo "This target is implemented in its corresponding project phase."

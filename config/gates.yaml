@@ -1,0 +1,7 @@
+minimum_independent_dates: 30
+minimum_positive_year_fraction: 0.60
+minimum_positive_symbol_fraction: 0.55
+maximum_single_year_profit_fraction: 0.40
+minimum_cost_stress_multiplier: 2.0
+maximum_adjusted_p_value: 0.05
+require_positive_parameter_neighbours: true

@@ -1,0 +1,19 @@
+name: index_dip
+universe: nse_equities
+symbols: [NIFTYBEES]
+rationale: >-
+  Sharp short-term index declines within a longer-term uptrend may reflect temporary
+  risk aversion; this tests whether a diversified index instrument rebounds after dips.
+params:
+  fall_lookback: 5
+  fall_threshold_pct: 5
+  trend_sma_length: 200
+  traded_value_window: 20
+filters:
+  minimum_price: 20
+  minimum_average_traded_value: 5000000
+exit_rules:
+  stop_loss_pct: 5
+  target_pct: 10
+sweep_grid:
+  fall_threshold_pct: [3, 5, 7]

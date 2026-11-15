@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 
 import duckdb
@@ -24,6 +25,18 @@ class MarketDataStore:
         if not paths:
             return pd.DataFrame(columns=list(OHLCV_COLUMNS))
         return pd.concat((pd.read_parquet(path) for path in paths), ignore_index=True)
+
+    def read_ohlcv_through(self, end_date: date) -> pd.DataFrame:
+        """Read only year partitions and rows on or before the requested end date."""
+        paths = sorted(
+            path
+            for path in self.adjusted_dir.glob("year=*/ohlcv.parquet")
+            if int(path.parent.name.split("=", maxsplit=1)[1]) <= end_date.year
+        )
+        if not paths:
+            return pd.DataFrame(columns=list(OHLCV_COLUMNS))
+        frame = pd.concat((pd.read_parquet(path) for path in paths), ignore_index=True)
+        return frame.loc[frame["date"] <= end_date].reset_index(drop=True)
 
     def write_ohlcv(self, incoming: pd.DataFrame) -> pd.DataFrame:
         """Merge non-empty bars by symbol/date and update Parquet and DuckDB."""

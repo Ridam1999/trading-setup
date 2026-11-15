@@ -1,0 +1,19 @@
+name: pullback_uptrend
+universe: nse_equities
+rationale: >-
+  In persistent uptrends, short-term selling pressure can briefly push price momentum
+  to an extreme while the long-term trend remains intact; the setup tests whether
+  liquidity-screened mean reversion captures that temporary pressure.
+params:
+  trend_sma_length: 200
+  rsi_window: 2
+  rsi_max: 10
+  traded_value_window: 20
+filters:
+  minimum_price: 20
+  minimum_average_traded_value: 5000000
+exit_rules:
+  stop_loss_pct: 8
+  target_pct: 15
+sweep_grid:
+  rsi_max: [5, 10, 15]

@@ -1,0 +1,20 @@
+name: vol_contraction
+universe: nse_equities
+rationale: >-
+  Volatility contractions can reflect balance between buyers and sellers; a subsequent
+  range break tests whether renewed demand follows the quiet period.
+params:
+  atr_short_window: 10
+  atr_long_window: 50
+  contraction_max: 0.75
+  contraction_lookback: 5
+  breakout_window: 20
+  traded_value_window: 20
+filters:
+  minimum_price: 20
+  minimum_average_traded_value: 5000000
+exit_rules:
+  stop_loss_pct: 8
+  target_pct: 20
+sweep_grid:
+  contraction_max: [0.65, 0.75, 0.85]
