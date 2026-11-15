@@ -52,3 +52,14 @@ def test_import_check_and_summary_commands(tmp_path: Path, monkeypatch) -> None:
     assert (
         tmp_path / "adjusted" / "universe_membership" / "year=unknown" / "membership.parquet"
     ).is_file()
+
+
+def test_data_help_lists_commands() -> None:
+    """The real Typer help renderer exposes all supported data commands."""
+    result = runner.invoke(app, ["data", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "import-eod2" in result.output
+    assert "update" in result.output
+    assert "check" in result.output
+    assert "summary" in result.output
