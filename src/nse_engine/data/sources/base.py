@@ -29,7 +29,9 @@ class DataSource(Protocol):
         """Read and normalize one source file."""
 
 
-def normalize_ohlcv(frame: pd.DataFrame, source: str) -> pd.DataFrame:
+def normalize_ohlcv(
+    frame: pd.DataFrame, source: str, drop_invalid_rows: bool = False
+) -> pd.DataFrame:
     """Normalize common NSE/EOD2 column names and enforce canonical values."""
     if frame.empty:
         raise ValueError("Refusing to import an empty market-data file")
@@ -85,8 +87,20 @@ def normalize_ohlcv(frame: pd.DataFrame, source: str) -> pd.DataFrame:
     normalized["source"] = source
     normalized["ingested_at"] = pd.Timestamp.now(tz="UTC")
     normalized = normalized.loc[:, list(OHLCV_COLUMNS)]
-    if normalized[["symbol", "date", "open", "high", "low", "close", "volume"]].isna().any().any():
+    required_values = ["symbol", "date", "open", "high", "low", "close", "volume"]
+    invalid = normalized[required_values].isna().any(axis=1)
+    dropped_rows = int(invalid.sum())
+    if dropped_rows and not drop_invalid_rows:
+        raise ValueError("Input has invalid or missing required values")
+    if dropped_rows:
+        normalized = normalized.loc[~invalid].copy()
+    if normalized.empty:
+        if drop_invalid_rows:
+            normalized.attrs["invalid_rows_skipped"] = dropped_rows
+            return normalized
         raise ValueError("Input has invalid or missing required values")
     if normalized.duplicated(["symbol", "date"]).any():
         raise ValueError("Input contains duplicate symbol/date rows")
-    return normalized.sort_values(["symbol", "date"], ignore_index=True)
+    result = normalized.sort_values(["symbol", "date"], ignore_index=True)
+    result.attrs["invalid_rows_skipped"] = dropped_rows
+    return result

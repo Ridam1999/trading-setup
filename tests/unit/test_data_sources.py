@@ -38,7 +38,8 @@ def test_eod2_source_normalizes_adjusted_prices() -> None:
 def test_eod2_source_imports_directory_of_symbol_files(tmp_path: Path) -> None:
     """Per-symbol files without a ticker column get their symbols from filenames."""
     (tmp_path / "reliance.csv").write_text(
-        "Date,Open,High,Low,Close,Volume\n2024-01-02,100,105,99,104,1000\n",
+        "Date,Open,High,Low,Close,Volume\n"
+        "2024-01-02,100,105,99,104,1000\n2024-01-03,104,106,102,,1500\n",
         encoding="utf-8",
     )
     (tmp_path / "NIFTYBEES.csv").write_text(
@@ -51,6 +52,8 @@ def test_eod2_source_imports_directory_of_symbol_files(tmp_path: Path) -> None:
     assert frame["symbol"].tolist() == ["NIFTYBEES", "RELIANCE"]
     assert frame["close"].tolist() == [251, 104]
     assert frame["source"].eq("eod2_adjusted").all()
+    assert frame.attrs["invalid_rows_skipped"] == 1
+    assert frame.attrs["invalid_files_skipped"] == 0
 
 
 @pytest.mark.parametrize(

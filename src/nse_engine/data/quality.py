@@ -90,16 +90,18 @@ def check_ohlcv(
             )
 
     if minimum_analysis_date is not None:
-        for row in frame.loc[frame["date"] < minimum_analysis_date].itertuples(index=False):
+        early_history = frame.loc[frame["date"] < minimum_analysis_date]
+        for symbol, group in early_history.groupby("symbol", sort=True):
             record(
                 "pre_analysis_history",
                 "warning",
-                str(row.symbol),
-                row.date,
-                f"History before {minimum_analysis_date} is lower quality",
+                str(symbol),
+                group["date"].min(),
+                f"{len(group)} observations before {minimum_analysis_date} are lower quality",
             )
 
-    trading_dates = set(calendar.loc[calendar["is_trading_day"], "date"])
+    observed_dates = set(frame["date"])
+    trading_dates = set(calendar.loc[calendar["is_trading_day"], "date"]) & observed_dates
     for symbol, group in frame.sort_values("date").groupby("symbol", sort=True):
         observed_dates = set(group["date"])
         expected_dates = {

@@ -98,12 +98,17 @@ def _store() -> tuple[MarketDataStore, DataConfig]:
 
 def _commit_import(frame: pd.DataFrame, source_label: str) -> None:
     """Persist imported bars and refresh the observed calendar."""
+    invalid_rows = int(frame.attrs.get("invalid_rows_skipped", 0))
+    invalid_files = int(frame.attrs.get("invalid_files_skipped", 0))
     store, settings = _store()
     merged = store.write_ohlcv(attach_raw_close(frame))
     store.write_calendar(build_calendar(merged, settings.holidays))
     store.write_universe(load_universe(config_directory() / "universe.yaml"))
     logger.info("Imported %s rows from %s", len(frame), source_label)
-    typer.echo(f"Imported {len(frame)} rows; store now contains {len(merged)} rows.")
+    typer.echo(
+        f"Imported {len(frame)} rows; store now contains {len(merged)} rows. "
+        f"Skipped {invalid_rows} rows with incomplete OHLCV in {invalid_files} files."
+    )
 
 
 @data_app.command("import-eod2")
