@@ -75,6 +75,15 @@ def test_study_cli_lists_commands() -> None:
     assert "report" in result.output
 
 
+def test_backtest_cli_lists_commands() -> None:
+    """The backtest help exposes fixed-run and walk-forward commands."""
+    result = runner.invoke(app, ["backtest", "--help"])
+
+    assert result.exit_code == 0, result.output
+    assert "run" in result.output
+    assert "walk-forward" in result.output
+
+
 def test_cli_refuses_holdout_before_reading_market_data(tmp_path: Path, monkeypatch) -> None:
     """A holdout run without the explicit flag exits before data access or trial logging."""
     config_dir = tmp_path / "config"

@@ -8,6 +8,7 @@ from typing import Any
 import pandas as pd  # type: ignore[import-untyped]
 
 from nse_engine.backtest.costs import CostsConfig, round_trip_cost
+from nse_engine.backtest.fills import buy_limit_fill, sell_exit_fill, time_exit_fill
 from nse_engine.features.indicators import regime_labels
 from nse_engine.setups.base import Setup, eligible_rows
 from nse_engine.study.config import StudySettings
@@ -31,19 +32,16 @@ def simulate_event(
         raise ValueError("Stop and target percentages must be positive")
     signal_row = symbol_frame.iloc[signal_index]
     entry_row = symbol_frame.iloc[signal_index + 1]
-    if "circuit_locked" in entry_row and pd.notna(entry_row["circuit_locked"]):
-        if bool(entry_row["circuit_locked"]):
-            return None
-    limit_price = float(signal_row["close"]) * (1 + settings.entry_limit_buffer_bps / 10000)
-    if float(entry_row["open"]) <= limit_price:
-        base_entry = float(entry_row["open"])
-    elif float(entry_row["low"]) <= limit_price:
-        base_entry = limit_price
-    else:
-        return None
-
     slip = costs.slippage_bps / 10000
-    entry_price = base_entry * (1 + slip)
+    entry_price = buy_limit_fill(
+        float(signal_row["close"]),
+        entry_row,
+        settings.entry_limit_buffer_bps,
+        costs.slippage_bps,
+    )
+    if entry_price is None:
+        return None
+    base_entry = entry_price / (1 + slip)
     stop_pct = stop_loss_pct
     target_pct_value = target_pct
     stop_price = entry_price * (1 - stop_pct / 100) if stop_pct is not None else None
@@ -51,27 +49,18 @@ def simulate_event(
         entry_price * (1 + target_pct_value / 100) if target_pct_value is not None else None
     )
     exit_index = signal_index + horizon
-    base_exit: float | None = None
+    exit_price: float | None = None
+    exit_reason: str | None = None
     for bar_index in range(signal_index + 1, signal_index + horizon + 1):
         bar = symbol_frame.iloc[bar_index]
-        low = float(bar["low"])
-        high = float(bar["high"])
-        open_price = float(bar["open"])
-        stop_hit = stop_price is not None and low <= stop_price
-        target_hit = target_price is not None and high >= target_price
-        if stop_hit:
-            assert stop_price is not None
-            base_exit = open_price if open_price <= stop_price else stop_price
+        exit_price, exit_reason = sell_exit_fill(bar, stop_price, target_price, costs.slippage_bps)
+        if exit_reason is not None:
             exit_index = bar_index
             break
-        if target_hit:
-            assert target_price is not None
-            base_exit = target_price
-            exit_index = bar_index
-            break
-    if base_exit is None:
-        base_exit = float(symbol_frame.iloc[exit_index]["close"])
-    exit_price = base_exit * (1 - slip)
+    if exit_price is None:
+        exit_price = time_exit_fill(symbol_frame.iloc[exit_index], costs.slippage_bps)
+    if exit_price is None:
+        return None
     gross_return = exit_price / entry_price - 1
     quantity = settings.notional_rupees / entry_price
     charges = round_trip_cost(entry_price, exit_price, quantity, costs)

@@ -17,5 +17,8 @@ lint:
 study:
 	uv run --no-sync nse-engine study --help
 
-data backtest paper ui:
+backtest:
+	uv run --no-sync nse-engine backtest --help
+
+data paper ui:
 	@echo "This target is implemented in its corresponding project phase."

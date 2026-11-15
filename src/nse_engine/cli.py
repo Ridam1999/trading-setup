@@ -4,18 +4,25 @@ from __future__ import annotations
 
 import hashlib
 import html
+import itertools
 import json
 import logging
-from datetime import date
+from datetime import UTC, date, datetime
 from pathlib import Path
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 import pandas as pd  # type: ignore[import-untyped]
 import typer
 import yaml
 
+from nse_engine.backtest.config import load_backtest_settings
 from nse_engine.backtest.costs import load_costs_config
+from nse_engine.backtest.engine import run_portfolio_backtest
+from nse_engine.backtest.metrics import portfolio_metrics
+from nse_engine.backtest.portfolio import cost_stress_runs, monte_carlo_drawdowns
+from nse_engine.backtest.report import write_backtest_report
+from nse_engine.backtest.walkforward import walk_forward_backtest
 from nse_engine.calendar import build_calendar
 from nse_engine.config import DataConfig, config_directory, load_config, load_data_config
 from nse_engine.data.adjust import attach_raw_close
@@ -43,9 +50,11 @@ from nse_engine.study.trials import TrialRegistry
 app = typer.Typer(help="Local NSE setup research tools.")
 data_app = typer.Typer(help="Import and inspect daily market data.")
 study_app = typer.Typer(help="Run and review rule-based event studies.")
+backtest_app = typer.Typer(help="Run daily portfolio simulations and walk-forward tests.")
 logger = logging.getLogger(__name__)
 app.add_typer(data_app, name="data")
 app.add_typer(study_app, name="study")
+app.add_typer(backtest_app, name="backtest")
 
 
 @app.callback()
@@ -189,6 +198,226 @@ def data_summary() -> None:
             indent=2,
         )
     )
+
+
+def _approved_backtest_setups() -> list[SetupConfig]:
+    """Load only setup configurations that Phase 2 marked as approved."""
+    path = config_directory() / "approved_setups.yaml"
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Missing {path}; run Phase 2 study report and review its approval gates first"
+        )
+    with path.open(encoding="utf-8") as config_file:
+        document = yaml.safe_load(config_file)
+    entries = document.get("approved_setups", []) if isinstance(document, dict) else []
+    if not isinstance(entries, list) or not entries:
+        raise ValueError(f"No approved setups are listed in {path}")
+    configs = [SetupConfig.model_validate(item["parameters"]) for item in entries]
+    unique = {
+        json.dumps(config.model_dump(mode="json"), sort_keys=True): config for config in configs
+    }
+    return list(unique.values())
+
+
+def _walk_forward_candidates() -> list[SetupConfig]:
+    """Expand declared parameter grids without using validation or holdout results."""
+    candidates: list[SetupConfig] = []
+    for path in sorted((config_directory() / "setups").glob("*.yaml")):
+        config = load_setup_config(path.stem, path.parent)
+        names = sorted(config.sweep_grid)
+        if not names:
+            candidates.append(config)
+            continue
+        value_lists = [config.sweep_grid[name] for name in names]
+        for combination in itertools.product(*value_lists):
+            params = {**config.params, **dict(zip(names, combination, strict=True))}
+            candidates.append(config.model_copy(update={"params": params}))
+    return candidates
+
+
+def _save_portfolio_outputs(
+    label: str,
+    simulation: dict[str, pd.DataFrame],
+    settings: Any,
+    metrics: dict[str, Any],
+    stress: dict[str, dict[str, Any]],
+    monte_carlo: dict[str, float | int],
+    setups: list[SetupConfig],
+    split_label: str,
+) -> Path:
+    """Persist one immutable result bundle and append its experiments to the registry."""
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
+    output_dir = settings.reports_dir / f"backtest_{label}_{stamp}"
+    output_dir.mkdir(parents=True, exist_ok=False)
+    simulation["equity"].to_parquet(output_dir / "equity.parquet", index=False)
+    simulation["trades"].to_parquet(output_dir / "trades.parquet", index=False)
+    simulation.get("orders", pd.DataFrame()).to_parquet(output_dir / "orders.parquet", index=False)
+    if "windows" in simulation:
+        simulation["windows"].to_parquet(output_dir / "windows.parquet", index=False)
+    config = load_config()
+    bias = bool(config.documents.get("universe", {}).get("survivorship_biased", True))
+    report_path = write_backtest_report(
+        simulation["equity"],
+        simulation["trades"],
+        metrics,
+        stress,
+        monte_carlo,
+        output_dir / "report.html",
+        bias,
+    )
+    study_settings = load_study_settings()
+    registry = TrialRegistry(study_settings.trial_registry_path)
+    logged_metrics = {
+        "experiment_type": "portfolio_backtest",
+        "portfolio_metrics": metrics,
+        "cost_stress": stress,
+        "monte_carlo": monte_carlo,
+        "report_path": str(report_path),
+    }
+    for setup in setups:
+        registry.append_trial(
+            setup,
+            f"backtest:{split_label}",
+            settings.maximum_holding_days,
+            logged_metrics,
+        )
+    typer.echo(f"Wrote backtest report: {report_path}")
+    typer.echo(json.dumps(metrics, indent=2, default=str))
+    return report_path
+
+
+@backtest_app.command("run")
+def backtest_run(
+    split: Annotated[
+        Literal["train", "validation"],
+        typer.Option("--split", help="Run only inside the train or validation date range."),
+    ] = "train",
+) -> None:
+    """Run an approved-setup portfolio backtest on a locked non-holdout split."""
+    try:
+        bounds = configured_split(split)
+        if not isinstance(bounds.end, date):
+            raise ValueError(f"{split} split must have a fixed end date")
+        setups_config = _approved_backtest_setups()
+        setups = [create_setup(setup_config) for setup_config in setups_config]
+        simulation_settings = load_backtest_settings()
+        costs = load_costs_config()
+        store, _ = _store()
+        frame = store.read_ohlcv_through(bounds.end)
+        simulation = run_portfolio_backtest(
+            frame, setups, simulation_settings, costs, bounds.start, bounds.end
+        )
+        metrics = portfolio_metrics(
+            simulation["equity"], simulation["trades"], simulation_settings.annual_risk_free_rate
+        )
+        stress = cost_stress_runs(
+            frame, setups, simulation_settings, costs, bounds.start, bounds.end
+        )
+        monte_carlo = monte_carlo_drawdowns(
+            simulation["trades"],
+            simulation_settings.monte_carlo_replicates,
+            load_config().base.random_seed,
+        )
+        _save_portfolio_outputs(
+            "run",
+            simulation,
+            simulation_settings,
+            metrics,
+            stress,
+            monte_carlo,
+            setups_config,
+            split,
+        )
+    except (FileNotFoundError, ValueError) as error:
+        typer.echo(f"Backtest failed: {error}", err=True)
+        raise typer.Exit(code=1) from error
+
+
+@backtest_app.command("walk-forward")
+def backtest_walk_forward(
+    split: Annotated[
+        Literal["train", "validation"],
+        typer.Option("--split", help="Out-of-sample train or validation range."),
+    ] = "train",
+) -> None:
+    """Select setup parameters on rolling training windows and test the next window."""
+    try:
+        bounds = configured_split(split)
+        if not isinstance(bounds.end, date):
+            raise ValueError(f"{split} split must have a fixed end date")
+        candidate_configs = _walk_forward_candidates()
+        candidates = [create_setup(config) for config in candidate_configs]
+        simulation_settings = load_backtest_settings()
+        costs = load_costs_config()
+        store, _ = _store()
+        train_bounds = configured_split("train")
+        available_start = train_bounds.start
+        frame = store.read_ohlcv_through(bounds.end)
+        if split == "train":
+            oos_start = None
+        else:
+            oos_start = bounds.start
+        result = walk_forward_backtest(
+            frame,
+            candidates,
+            simulation_settings,
+            costs,
+            available_start,
+            bounds.end,
+            simulation_settings.walk_forward_train_years,
+            simulation_settings.walk_forward_test_years,
+            simulation_settings.walk_forward_step_years,
+            oos_start_date=oos_start,
+        )
+        if result["equity"].empty:
+            raise ValueError(
+                "No complete walk-forward test window fits this split; "
+                "check the configured date range"
+            )
+        metrics = portfolio_metrics(
+            result["equity"], result["trades"], simulation_settings.annual_risk_free_rate
+        )
+        stress: dict[str, dict[str, Any]] = {}
+        for multiplier in costs.stress_multipliers:
+            stressed = walk_forward_backtest(
+                frame,
+                candidates,
+                simulation_settings,
+                costs,
+                available_start,
+                bounds.end,
+                simulation_settings.walk_forward_train_years,
+                simulation_settings.walk_forward_test_years,
+                simulation_settings.walk_forward_step_years,
+                oos_start_date=oos_start,
+                cost_multiplier=multiplier,
+            )
+            stress[f"{multiplier:g}x"] = portfolio_metrics(
+                stressed["equity"], stressed["trades"], simulation_settings.annual_risk_free_rate
+            )
+        monte_carlo = monte_carlo_drawdowns(
+            result["trades"],
+            simulation_settings.monte_carlo_replicates,
+            load_config().base.random_seed,
+        )
+        selected_by_key = {
+            json.dumps(item, sort_keys=True): SetupConfig.model_validate(item)
+            for item in result["windows"]["selected_parameters"]
+        }
+        selected_configs = list(selected_by_key.values())
+        _save_portfolio_outputs(
+            "walk_forward",
+            result,
+            simulation_settings,
+            metrics,
+            stress,
+            monte_carlo,
+            selected_configs or candidate_configs,
+            f"walk_forward:{split}",
+        )
+    except (FileNotFoundError, ValueError) as error:
+        typer.echo(f"Walk-forward failed: {error}", err=True)
+        raise typer.Exit(code=1) from error
 
 
 def _study_inputs(
@@ -406,7 +635,7 @@ def study_report() -> None:
     settings = load_study_settings()
     gates = load_gate_settings()
     registry = TrialRegistry(settings.trial_registry_path)
-    rows = registry.rows()
+    rows = [row for row in registry.rows() if not row["split"].startswith("backtest:")]
     p_values: list[float] = []
     for row in rows:
         metrics = json.loads(row["metrics_json"])

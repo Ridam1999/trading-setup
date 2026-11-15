@@ -35,6 +35,19 @@ uv run --no-sync nse-engine study report
 
 Studies append every setup/parameter/split/horizon result to the SQLite registry at `data/duckdb/trials.sqlite` and save per-event Parquet files in `reports/study_events/`. The report applies Benjamini-Hochberg correction across logged trials and evaluates configured approval gates. Holdout data stays locked; accessing it requires `--unlock-holdout`, which adds an audit row to the registry. Rates in `config/costs.yaml` are illustrative and must be verified before relying on results.
 
+### Phase 3: portfolio backtests
+
+Run an approved setup portfolio on a fixed, non-holdout split:
+
+```sh
+uv run --no-sync nse-engine backtest run --split train
+uv run --no-sync nse-engine backtest run --split validation
+uv run --no-sync nse-engine backtest walk-forward --split train
+uv run --no-sync nse-engine backtest walk-forward --split validation
+```
+
+Backtests read only configurations listed in config/approved_setups.yaml; generate and review that file with nse-engine study report first. Walk-forward runs use the declared setup parameter grids, choose the best Sharpe setup on each past-only training window, then test on the next window. Portfolio limits and rolling windows live in config/backtest.yaml. Each run writes a uniquely named folder under reports/ containing an HTML Plotly report and Parquet equity, order, trade, and (for walk-forward) window tables. Backtest experiments append to the same immutable SQLite trial registry.
+
 ## Project phases
 
 0. Bootstrap: tooling, config, CLI, logging.
