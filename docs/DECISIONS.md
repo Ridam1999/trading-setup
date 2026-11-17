@@ -64,6 +64,7 @@
 - The bot is limited to public NSE endpoints with no credentials, vendor contact, or live order path. Every URL, date bound, weekday, delay, retry, directory, and exclusion is in `config/factor_data.yaml`; the frozen design and ₹0 budget are unchanged.
 - Dated bhavcopies are immutable. Membership snapshots use only data available on or before each rebalance date, with a regression test proving later liquidity spikes cannot change earlier snapshots.
 - Announcement metadata is stored at `announcement_index.parquet`, separate from the `fundamentals_path` output. Filing paths derive from a SHA-256 URL digest so repeated downloads are deterministic.
+- NIFTYBEES stays in the price store for benchmark comparisons but is excluded from equity universe membership by an explicit configured symbol list; the regex exclusions continue to remove other ETFs and index series.
 - Network acquisition is an explicit owner action. Verification uses mocked HTTP transports and synthetic local files only; no public endpoint was contacted during `make check`.
 
 # Fundamentals parser decision (2026-11-18)
@@ -73,3 +74,11 @@
 - Parsed rows are append-only and announcement-dated. Reruns skip exact existing rows; restatements append later-dated rows. Missing or unparseable PDFs are reported rather than silently dropped.
 - `select_fundamentals_as_of` enforces cutoff-based causality, with a test showing a 2018-style restatement pattern cannot alter a 2017 cutoff. The caller must still apply the configured session-based announcement lag.
 - `pypdf==7.1.0` is pinned in `pyproject.toml` and `uv.lock`. No new credential, vendor, live-order, or network path is introduced by parsing.
+
+# Factor-study execution decision (2026-11-18)
+
+- The next bounded step builds the execution engine and candidate-only report. It does not acquire data, run a real study, approve a setup, or open the holdout.
+- `factor run` rechecks readiness, then computes H1–H4 at the frozen horizons with causal fundamentals, point-in-time prices, winsorized z-scores, top-quintile baskets, turnover control, configured fill lag, and configured costs at the locked stress floor.
+- Multiple-testing correction is per split because the splits are sequential and the holdout must remain independent. Rebalances whose full horizon would cross a split boundary are omitted rather than evaluated on truncated returns.
+- All results are appended to the trial registry. Passing every gate is a candidate awaiting point-in-time verification, never an automatic approval; no code path writes `approved_setups.yaml` or changes `data_bias_status`.
+- The HTML report repeats the candidate-only banner and disclaimer, shows all frozen hash and gate details, and includes calendar-year and benchmark comparisons. `make factor-run` is the operator entry point; it still blocks on the missing PIT inputs.

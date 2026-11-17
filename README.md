@@ -166,11 +166,26 @@ uv run --no-sync nse-engine factor acquire filings
 uv run --no-sync nse-engine factor acquire fundamentals
 ```
 
-Run them in that order. `prices` writes immutable dated bhavcopies under `data/pit/bhavcopy`; `membership` derives top-N snapshots using only data available at each rebalance date; `announcements` downloads public announcement metadata into `data/pit/announcement_index.parquet` and raw JSON chunks; `filings` downloads linked PDFs without overwriting existing copies; `fundamentals` appends parsed, announcement-dated EPS, net-profit, and equity rows to `data/pit/fundamentals_announcements.parquet`. All commands print the research disclaimer.
+Run them in that order. `prices` writes immutable dated bhavcopies under `data/pit/bhavcopy`; `membership` derives top-N snapshots using only data available at each rebalance date; `announcements` downloads public announcement metadata into `data/pit/announcement_index.parquet` and raw JSON chunks; `filings` downloads linked PDFs without overwriting existing copies; `fundamentals` appends parsed, announcement-dated EPS, net-profit, and equity rows to `data/pit/fundamentals_announcements.parquet`. NIFTYBEES remains in the price store as the benchmark reference but is excluded from equity membership by `config/factor_data.yaml`. All commands print the research disclaimer.
 
-The parser is best-effort: label patterns and crore scaling live in YAML, missing or unparseable PDFs are reported, and prior rows are never overwritten. A restatement appends a later-announcement row, and `select_fundamentals_as_of` shows that later values cannot leak into earlier cutoffs. Manual review is still required before these values are trusted; no factor study has run.
+The parser is best-effort: label patterns and crore scaling live in YAML, missing or unparseable PDFs are reported, and prior rows are never overwritten. A restatement appends a later-announcement row, and `select_fundamentals_as_of` shows that later values cannot leak into earlier cutoffs. Manual review is still required before these values are trusted.
 
-`make check` includes mocked HTTP tests, synthetic dated bhavcopies, a causality test showing that a later liquidity spike cannot change an earlier membership snapshot, and restatement/idempotency tests for fundamentals parsing. It also includes guard tests that reject owner-decision placeholders, verify that signal/order and announcement lags are at least one session, and exercise the ready and blocked readiness paths. There is still no factor-study execution CLI, no vendor contact, no approval, and no holdout access. Changing any frozen slot after data access invalidates the study and requires a new pre-registration.
+### Frozen factor-study execution
+
+The execution layer is available but remains blocked until the three PIT inputs actually exist:
+
+```bash
+make factor-run
+# equivalent: uv run --no-sync nse-engine factor run
+# explicit, audited holdout access:
+uv run --no-sync nse-engine factor run --unlock-holdout
+```
+
+`factor run` first rechecks the frozen hash, PIT inputs, causal lags, locked holdout state, and cost-stress floor. It then evaluates H1–H4 at the four frozen 1/3/6/12-month horizons on train and validation only unless `--unlock-holdout` is passed. Signals use announcement-dated fundamentals after the configured lag, point-in-time closes, winsorized z-scores, the top-quintile basket, the configured turnover cap, and the shared next-session limit-fill model with configured costs. Rebalance dates whose full horizon would cross a split boundary are dropped, so a default run cannot read holdout prices. Benjamini–Hochberg correction is applied separately within each split across the 4 × 4 hypothesis/horizon combinations.
+
+Every hypothesis/horizon/split result is appended to the append-only trial registry. A pass is recorded only as a candidate requiring point-in-time verification; the command never writes `config/approved_setups.yaml`, never changes `data_bias_status`, and never places an order. It writes `reports/factor_study.html` (configurable in `config/factor_data.yaml`) with the bias banner, frozen hash, gate table, calendar-year results, benchmark comparisons, and the required research disclaimer.
+
+`make check` includes mocked HTTP tests, synthetic dated bhavcopies, a causality test showing that a later liquidity spike cannot change an earlier membership snapshot, and restatement/idempotency tests for fundamentals parsing. It also includes guard tests for owner-decision placeholders, positive signal/announcement lags, blocked/ready readiness paths, six synthetic factor-study tests (default train/validation-only execution, causality under later price spikes and restatements, audited holdout access, blocked CLI execution, candidate-only reports, and rejection of a lowered cost-stress floor), and approval-file safety. No network acquisition, real factor run, vendor contact, approval, or holdout access occurred during verification. Changing any frozen slot after data access invalidates the study and requires a new pre-registration.
 
 ## Project phases
 
@@ -181,6 +196,6 @@ The parser is best-effort: label patterns and crore scaling live in YAML, missin
 4. Paper trading: implementation complete; the optimized real-data no-signal run is verified, and approvals remain empty.
 5. UI and reports: complete with a seven-page read-only Streamlit dashboard and reusable Plotly/HTML charts; `make ui` launches it.
 6. Broker interface: complete with live trading disabled; Groww order methods always raise `LiveTradingDisabled`.
-7. Next research program: factor study pre-registered and frozen with a ₹0 budget; a readiness gate, public-data acquisition bot, and restatement-safe fundamentals parser exist, but no factor study has run and no holdout data has been accessed.
+7. Next research program: factor study pre-registered and frozen with a ₹0 budget; the readiness gate, public-data acquisition bot, fundamentals parser, execution engine, and candidate-only report exist. No real factor study has run, no trials have been appended, and no holdout data has been accessed.
 
 See [docs/STATUS.md](docs/STATUS.md) for verification and manual prerequisites, [docs/REAL_DATA_RUNBOOK.md](docs/REAL_DATA_RUNBOOK.md) for the adapted EOD2 workflow, and [docs/SPEC.md](docs/SPEC.md) for requirements and acceptance criteria.

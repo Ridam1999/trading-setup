@@ -82,6 +82,7 @@
 - The bot uses only public NSE endpoints and no credentials, no vendor spend, and no live order endpoint. URL templates, date bounds, weekdays, delays, retries, raw/filing directories, and exclusions live in `config/factor_data.yaml`; the frozen factor design and ₹0 budget are unchanged.
 - Bhavcopy files are stored as immutable dated snapshots with a `.zip` suffix before the configured UDiFF boundary and `.csv` on and after it. The membership builder ranks symbols using only rows with date <= the rebalance date and a trailing window, so later delistings or late liquidity spikes cannot leak backwards.
 - The announcement bot downloads metadata and linked filing PDFs into `announcement_index.parquet`; the parsed fundamentals output is a separate `fundamentals_path` so metadata never masquerades as validated fundamentals. Filing paths derive from a SHA-256 digest of the URL so repeated runs are deterministic.
+- NIFTYBEES is retained in the dated price store because it is the configured benchmark, but it is explicitly excluded from point-in-time equity membership. Other ETFs and index series remain excluded by the configured symbol pattern.
 - No network download is executed by `make check`. Tests use mocked HTTP transports and synthetic local files. Running `factor acquire prices` is an explicit owner action.
 
 # Fundamentals parser
@@ -91,6 +92,16 @@
 - `factor acquire fundamentals` reads downloaded PDFs only, appends announcement-dated rows to `data/pit/fundamentals_announcements.parquet`, and never rewrites or deletes prior rows. Reruns are idempotent; missing or unparseable PDFs are counted in the summary.
 - `select_fundamentals_as_of` uses only rows announced on or before the supplied cutoff; the caller must apply the configured session lag. A regression test proves a restatement cannot leak into an earlier cutoff.
 - Parsing is best-effort and needs manual review before any fundamental factor is computed. `pypdf` is pinned in `pyproject.toml` and `uv.lock`; no new network path is added.
+
+# Factor study execution
+
+- "Go next achieve the goal" is interpreted as authorization to build the frozen study execution layer, not to acquire data, contact a vendor, approve a setup, or unlock the holdout. With no PIT inputs present, `factor run` still exits non-zero before loading any data.
+- Signal values use only point-in-time closes and fundamentals announced on or before the configured lag-shifted cutoff. The configured signal-to-order lag advances the fill session; a later price spike or a later fundamental restatement cannot change an earlier basket or entry fill.
+- Benjamini–Hochberg correction is applied within each split across all four hypotheses × four horizons. Results from one split are never used to adjust significance in another.
+- Rebalance dates close enough to a split boundary that the maximum configured horizon would extend past it are dropped. This is a conservative split-boundary trim, not a partial-horizon substitution, and it prevents default train/validation runs from reading holdout prices.
+- The cost-stress multiplier is applied to both slippage and delivery charges. A configured multiplier below the locked gate floor blocks execution before any trial is appended.
+- Every executed hypothesis/horizon/split combination is appended once to the append-only registry. Passing all gates produces `candidate: true` only; approval files, the bias flag, and holdout state remain untouched.
+- The report shows the configured data-bias status, frozen hash, per-gate failures, yearly results, benchmark comparisons, and the research disclaimer. A candidate requires separate point-in-time verification before it can be treated as evidence.
 
 # Remaining phases (5 and 6)
 
