@@ -102,6 +102,29 @@ uv run --no-sync nse-engine paper run --date 2026-11-18 --data-path /path/to/bha
 
 The verified 2026-11-13 run wrote `reports/paper/paper_2026-11-13.md` and `reports/paper/orders_2026-11-13.json` with zero signals, orders, and fills; a repeat run left both files byte-identical and the ledger at one `runs` row. `paper run` is idempotent per signal date: a repeated date re-emits the same report and JSON order plan without duplicating ledger rows. It evaluates only setups listed in `config/approved_setups.yaml`, skips setups suspended by the decay monitor, and fills pending orders from the next available session using the shared limit-order model. If no setup fires (including when the approval file is empty), it still writes a report saying so. Reports and order plans go to `reports/paper/`; the ledger is `data/duckdb/paper.sqlite`. Paths and decay thresholds live in `config/paper.yaml`. Every report carries the research disclaimer and the configured data-bias status. No broker or live-order code is involved.
 
+### Phase 6: broker interface (live disabled)
+
+The broker layer is a set of Python types, not a CLI workflow:
+
+```python
+from pathlib import Path
+
+from nse_engine.broker.config import load_broker_config
+from nse_engine.broker.fake import FakeBroker
+from nse_engine.broker.groww import GrowwBroker
+from nse_engine.broker.paper_broker import PaperBroker
+from nse_engine.paper.ledger import PaperLedger
+
+config = load_broker_config()                              # config/broker.yaml
+fake = FakeBroker(config)                                  # deterministic, in-memory
+paper = PaperBroker(config, PaperLedger(Path("data/duckdb/paper.sqlite")))
+groww = GrowwBroker(config)                                # every method raises LiveTradingDisabled
+```
+
+`Broker`, `OrderAck`, `Order`, `Position`, `Holding` and `Side` live in `nse_engine.broker.base`. Strategy code imports only those types, never a concrete adapter. `FakeBroker` applies the configured kill switch, daily loss cap, max-order-size, max-position, and client-ref idempotency guards, with deterministic simulated order IDs. `PaperBroker` places simulated orders through `FakeBroker` and sources positions/holdings from the durable paper ledger; `reconcile()` reports mismatches between the two. A token-bucket limiter in `nse_engine.broker.ratelimit` uses the order/data rates in `config/broker.yaml`.
+
+`GrowwBroker` is a **disabled skeleton**: it opens no network connection, and every order, query, and price method raises `LiveTradingDisabled` even if `DRY_RUN=false` and the `LIVE_CONFIRM` environment variable are set. No real order submission exists. Credential variable **names** are configured in `config/broker.yaml` and documented in `.env.example`; no credentials are stored in the repo. Setting the live flags cannot enable the skeleton.
+
 ## Project phases
 
 0. Bootstrap: complete.
@@ -110,6 +133,6 @@ The verified 2026-11-13 run wrote `reports/paper/paper_2026-11-13.md` and `repor
 3. Portfolio backtest: implementation complete; synthetic acceptance passes, real-data run pending.
 4. Paper trading: implementation complete; the optimized real-data no-signal run is verified, and approvals remain empty.
 5. UI and reports: not started.
-6. Broker interface: not started; live orders remain disabled.
+6. Broker interface: complete with live trading disabled; Groww order methods always raise `LiveTradingDisabled`.
 
 See [docs/STATUS.md](docs/STATUS.md) for verification and manual prerequisites, [docs/REAL_DATA_RUNBOOK.md](docs/REAL_DATA_RUNBOOK.md) for the adapted EOD2 workflow, and [docs/SPEC.md](docs/SPEC.md) for requirements and acceptance criteria.

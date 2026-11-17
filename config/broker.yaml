@@ -1,0 +1,18 @@
+# Phase 6: live trading is disabled by default. Every threshold lives here;
+# no limit is hard-coded in the broker adapters.
+dry_run: true
+live_confirm_env: LIVE_CONFIRM
+api_key_env: GROWW_API_KEY
+api_secret_env: GROWW_API_SECRET
+totp_seed_env: GROWW_TOTP_SEED
+order_rate:
+  burst: 10
+  refill_per_second: 10
+data_rate:
+  burst: 300
+  refill_per_second: 10
+batch_ltp_max_symbols: 50
+global_kill_switch: false
+daily_loss_cap_rupees: 5000.0
+max_order_size_rupees: 100000.0
+max_open_positions: 20

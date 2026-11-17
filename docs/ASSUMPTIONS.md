@@ -67,3 +67,10 @@
 - `docs/FACTOR_STUDY_PREREG.md` is a **DRAFT** written on 2026-11-18 in response to "what should be next?". It records the methodology agreed before any data work: cross-sectional hypotheses, point-in-time delisted-inclusive universe, long-only top-basket equal-weight construction with the existing causal fill model, announcement-dated fundamentals with a restatement-leak fixture test, equal-weight-universe and NIFTYBEES benchmarks, the locked gate strictness, and a stop rule with an owner-set tuition budget.
 - The owner-decision slots (hypothesis definitions and rationale, universe size, basket cutoff, rebalance frequency, turnover cap, and budget) are deliberately left unfilled rather than guessed. Pre-registration commitments must be the owner's; no study code or data purchase follows until they are filled and the document is committed.
 - The draft is a planning artifact only. It does not start the factor study phase, write study code, contact vendors, purchase data, or change `approved_setups.yaml`, `data_bias_status`, or holdout state. The closed daily-price/volume verdict is unchanged.
+
+# Remaining phases (5 and 6)
+
+- "Complete the pending phases first" is interpreted as Phase 5 (UI and reports) and Phase 6 (broker interface, live disabled), the two phases marked Not started in `docs/STATUS.md`. Phase 3's real-data portfolio run remains blocked because `config/approved_setups.yaml` is empty and holdout is locked; it is a research outcome, not an implementation gap, and is not fabricated.
+- Phase 5 reads from existing stores only: no new business logic in the UI layer, and every page shows the research disclaimer and the configured survivorship-bias status.
+- Phase 6 keeps live trading disabled: the Groww adapter is a skeleton whose order methods always raise `LiveTradingDisabled`, credentials come only from environment variables, and no code path may call a live order endpoint. `DRY_RUN` defaults to true.
+- Neither phase changes `approved_setups.yaml`, `data_bias_status`, the append-only trial registry, or holdout state, and neither reopens the closed daily-price/volume verdict.
