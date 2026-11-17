@@ -45,3 +45,10 @@
 - Importing PIT data into the shared store intentionally overrides overlapping EOD2 bars because `pit_adjusted` has higher source priority. EOD2 remains available as a comparison source and is never silently deleted.
 - `data verify-pit` writes evidence and fails when required PIT membership or corporate-action coverage is missing. It never edits the bias status in YAML; changing `SURVIVOR_BIASED` to `UNBIASED` remains a manual, reviewable decision.
 - Retroactive adjustment is for historical return continuity only and never creates an order. Bars on and after an ex-date keep their raw prices, and research reads remain date-bounded through `MarketDataStore.read_ohlcv_through`.
+
+# Provisional kill-stage studies
+
+- Provisional mode is a Phase 2 decision rule on survivor-biased free data, not a new data claim: a failed setup is discarded because bias would flatter it, while a pass is only a candidate for later verification on PIT data. `research.data_bias_status` stays `SURVIVOR_BIASED`.
+- Stock setups in this mode use the top-100 trailing traded-value universe defined in `config/universe_provisional.yaml`; ETF-level setups keep their configured symbol lists. The tighter screen reduces the expected small-cap survivorship inflation during the kill stage.
+- Provisional runs tag registry rows with `provisional: true`, allow only train and validation splits, block holdout before any registry access, and force the bias status in the gate evaluation. The report can show `provisional_pass` or `rejected` only.
+- `study report --provisional` writes `reports/study_report_provisional.html` with a prominent `SURVIVOR_BIASED` banner and never writes or deletes `approved_setups.yaml`, even if an approval file already exists.

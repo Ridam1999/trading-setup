@@ -45,6 +45,16 @@ uv run --no-sync nse-engine study run --setup random_signal --split train
 uv run --no-sync nse-engine study report
 ```
 
+For the free-data kill stage, add `--provisional` to `study run`, `study sweep`, and `study report`:
+
+```sh
+uv run --no-sync nse-engine study run --setup etf_timing --split train --provisional
+uv run --no-sync nse-engine study sweep --setup pullback_uptrend --split train --provisional
+uv run --no-sync nse-engine study report --provisional
+```
+
+Provisional mode is train/validation only: it rejects `--split holdout`, screens stock setups with the top-100 point-in-time liquidity universe in `config/universe_provisional.yaml`, and tags its registry rows so the report uses only those trials. Gates return `provisional_pass` or `rejected`, never `approved`; `approved_setups.yaml` is not written. The report is `reports/study_report_provisional.html` with a prominent `SURVIVOR_BIASED` banner. A failed setup is discarded; a pass is only a candidate for later verification.
+
 Studies append every setup/parameter/split/horizon result to the SQLite registry at `data/duckdb/trials.sqlite` and save per-event Parquet files in `reports/study_events/`. The report applies Benjamini-Hochberg correction across logged trials and evaluates configured approval gates. `random_signal` is a seeded negative control with no price dependence; it must fail the gates. Holdout data stays locked; accessing it requires `--unlock-holdout`, which adds an audit row to the registry. With `research.data_bias_status: SURVIVOR_BIASED`, a statistical pass is provisional only and cannot populate approved_setups.yaml.
 
 ### Phase 3: portfolio backtests
