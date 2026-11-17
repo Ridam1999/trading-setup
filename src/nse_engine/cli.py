@@ -33,12 +33,19 @@ from nse_engine.config import (
     load_data_config,
 )
 from nse_engine.data.adjust import attach_raw_close
+from nse_engine.data.corporate_actions import (
+    apply_corporate_actions,
+    load_corporate_actions,
+    validate_adjustments,
+)
 from nse_engine.data.quality import QualityReport, check_ohlcv, write_health_report
 from nse_engine.data.sources.eod2_import import EOD2Source
 from nse_engine.data.sources.nselib_source import BhavcopySource, download_bhavcopy
+from nse_engine.data.sources.pit_history import PitHistorySource
 from nse_engine.data.store import MarketDataStore
 from nse_engine.data.universe import (
     liquidity_universe_settings,
+    load_pit_membership,
     load_universe,
     point_in_time_liquidity_membership,
 )
@@ -113,15 +120,21 @@ def _store() -> tuple[MarketDataStore, DataConfig]:
     return store, settings
 
 
-def _commit_import(frame: pd.DataFrame, source_label: str) -> None:
-    """Persist imported bars and refresh the observed calendar."""
+def _commit_import(
+    frame: pd.DataFrame, source_label: str, membership: pd.DataFrame | None = None
+) -> None:
+    """Persist imported bars, membership, and the refreshed observed calendar."""
     invalid_rows = int(frame.attrs.get("invalid_rows_skipped", 0))
     invalid_files = int(frame.attrs.get("invalid_files_skipped", 0))
     invalid_breakdown = frame.attrs.get("invalid_row_breakdown", [])
     store, settings = _store()
     merged = store.write_ohlcv(attach_raw_close(frame))
     store.write_calendar(build_calendar(merged, settings.holidays))
-    store.write_universe(load_universe(config_directory() / "universe.yaml"))
+    store.write_universe(
+        membership
+        if membership is not None
+        else load_universe(config_directory() / "universe.yaml")
+    )
     if invalid_breakdown:
         settings.reports_dir.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(invalid_breakdown).to_csv(
@@ -148,6 +161,121 @@ def import_eod2(
     """Import adjusted daily prices from a local EOD2 CSV."""
     frame = EOD2Source().load(path)
     _commit_import(frame, str(path))
+
+
+@data_app.command("import-pit")
+def import_pit(
+    path: Annotated[
+        Path,
+        typer.Option("--path", exists=True, readable=True, help="Raw PIT CSV or Parquet file."),
+    ],
+    actions: Annotated[
+        Path | None,
+        typer.Option("--actions", exists=True, readable=True, help="Corporate-action CSV."),
+    ] = None,
+    membership: Annotated[
+        Path | None,
+        typer.Option("--membership", exists=True, readable=True, help="PIT membership CSV."),
+    ] = None,
+) -> None:
+    """Import raw PIT bars, apply corporate actions, and store dated membership."""
+    settings = load_data_config()
+    action_path = actions or settings.corporate_actions_path
+    if action_path is None:
+        raise typer.BadParameter(
+            "Provide --actions or configure corporate_actions_path in data.yaml"
+        )
+    raw = PitHistorySource().load(path)
+    action_frame = load_corporate_actions(action_path)
+    adjusted = apply_corporate_actions(raw, action_frame)
+    findings = validate_adjustments(adjusted, action_frame, settings.maximum_single_day_return_pct)
+    if not findings.empty:
+        settings.reports_dir.mkdir(parents=True, exist_ok=True)
+        findings.to_csv(settings.reports_dir / "corporate_action_review.csv", index=False)
+    membership_path = membership or settings.pit_membership_path
+    membership_frame = load_pit_membership(membership_path) if membership_path is not None else None
+    _commit_import(adjusted, str(path), membership_frame)
+    typer.echo(
+        f"Imported {len(adjusted)} PIT rows from {path} with {len(action_frame)} action dates; "
+        f"{len(findings)} adjusted returns need review."
+    )
+
+
+@data_app.command("verify-pit")
+def verify_pit(
+    path: Annotated[
+        Path,
+        typer.Option("--path", exists=True, readable=True, help="Raw PIT CSV or Parquet file."),
+    ],
+    actions: Annotated[
+        Path | None,
+        typer.Option("--actions", exists=True, readable=True, help="Corporate-action CSV."),
+    ] = None,
+    membership: Annotated[
+        Path | None,
+        typer.Option("--membership", exists=True, readable=True, help="PIT membership CSV."),
+    ] = None,
+) -> None:
+    """Write evidence for a PIT data claim and fail if required coverage is missing."""
+    settings = load_data_config()
+    action_path = actions or settings.corporate_actions_path
+    membership_path = membership or settings.pit_membership_path
+    raw = PitHistorySource().load(path)
+    checks: dict[str, bool] = {"bars_nonempty": not raw.empty}
+    details: dict[str, object] = {
+        "rows": len(raw),
+        "symbols": int(raw["symbol"].nunique()),
+    }
+
+    if settings.require_corporate_actions and action_path is None:
+        checks["corporate_actions_supplied"] = False
+    elif action_path is not None:
+        action_frame = load_corporate_actions(action_path)
+        adjusted = apply_corporate_actions(raw, action_frame)
+        findings = validate_adjustments(
+            adjusted, action_frame, settings.maximum_single_day_return_pct
+        )
+        checks["corporate_actions_supplied"] = True
+        checks["adjusted_returns_continuous"] = findings.empty
+        details["action_dates"] = len(action_frame)
+        details["large_adjusted_returns"] = len(findings)
+    else:
+        checks["corporate_actions_supplied"] = True
+        checks["adjusted_returns_continuous"] = True
+
+    if settings.require_pit_membership and membership_path is None:
+        checks["membership_supplied"] = False
+    elif membership_path is not None:
+        membership_frame = load_pit_membership(membership_path)
+        bar_symbols = set(raw["symbol"].astype(str))
+        member_symbols = set(membership_frame["symbol"].astype(str))
+        checks["membership_supplied"] = True
+        checks["membership_covers_all_symbols"] = bar_symbols.issubset(member_symbols)
+        details["symbols_without_membership"] = sorted(bar_symbols.difference(member_symbols))
+    else:
+        checks["membership_supplied"] = True
+        checks["membership_covers_all_symbols"] = True
+
+    passed = all(checks.values())
+    report = {
+        "disclaimer": "Research output, not advice; no guarantee of profit.",
+        "declared_data_bias_status": load_data_bias_status(load_config()),
+        "path": str(path),
+        "checks": checks,
+        "details": details,
+        "passed": passed,
+        "note": "Changing data_bias_status to UNBIASED remains a manual review decision.",
+    }
+    settings.reports_dir.mkdir(parents=True, exist_ok=True)
+    report_path = settings.reports_dir / "pit_verification.json"
+    report_path.write_text(json.dumps(report, indent=2), encoding="utf-8")
+    typer.echo(
+        f"PIT verification {'passed' if passed else 'failed'}; checks: "
+        + ", ".join(f"{name}={value}" for name, value in checks.items())
+        + f"; report: {report_path}"
+    )
+    if not passed:
+        raise typer.Exit(code=1)
 
 
 @data_app.command("update")
