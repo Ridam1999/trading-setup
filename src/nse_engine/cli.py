@@ -54,9 +54,10 @@ from nse_engine.paper.config import load_approval_entries, load_paper_settings
 from nse_engine.paper.ledger import PaperLedger
 from nse_engine.paper.report import DISCLAIMER as PAPER_DISCLAIMER
 from nse_engine.paper.runner import run_paper_day
-from nse_engine.setups.base import SetupConfig, load_setup_config
+from nse_engine.setups.base import Setup, SetupConfig, load_setup_config
 from nse_engine.setups.registry import create_setup
 from nse_engine.study.config import load_gate_settings, load_study_settings
+from nse_engine.study.control import LookAheadControl, summarize_control_results
 from nse_engine.study.events import build_event_study
 from nse_engine.study.gates import evaluate_provisional_gates, evaluate_setup_gates
 from nse_engine.study.splits import SplitName, configured_split, resolve_split
@@ -814,10 +815,12 @@ def _execute_study(
     seed: int,
     universe_path: Path | None = None,
     provisional: bool = False,
+    setup: Setup | None = None,
+    control: bool = False,
 ) -> list[dict[str, Any]]:
     """Run one setup/split experiment and append one registry row per horizon."""
     frame, start, end = _study_inputs(split, unlock_holdout, registry)
-    setup = create_setup(setup_config)
+    active_setup = setup if setup is not None else create_setup(setup_config)
     membership: pd.Series | None = None
     if setup_config.universe == "nse_equities":
         universe_settings = liquidity_universe_settings(universe_path)
@@ -842,7 +845,13 @@ def _execute_study(
         )
     try:
         events = build_event_study(
-            frame, setup, settings, costs_config, start, end, point_in_time_membership=membership
+            frame,
+            active_setup,
+            settings,
+            costs_config,
+            start,
+            end,
+            point_in_time_membership=membership,
         )
     except Exception as error:
         for horizon in settings.horizons:
@@ -854,6 +863,7 @@ def _execute_study(
                     "status": "error",
                     "error": str(error),
                     **({"provisional": True} if provisional else {}),
+                    **({"control": True} if control else {}),
                 },
             )
         raise
@@ -873,6 +883,8 @@ def _execute_study(
         metrics["event_data_path"] = str(event_path) if event_path else None
         if provisional:
             metrics["provisional"] = True
+        if control:
+            metrics["control"] = True
         trial_id = registry.append_trial(setup_config, split, horizon, metrics)
         results.append({"trial_id": trial_id, "split": split, "horizon": horizon, **metrics})
     return results
@@ -992,6 +1004,70 @@ def study_sweep(
     )
 
 
+@study_app.command("positive-control")
+def study_positive_control() -> None:
+    """Run a deliberately invalid look-ahead control on real data as a wiring check."""
+    project_config = load_config()
+    settings = load_study_settings()
+    costs = load_costs_config()
+    gates = load_gate_settings()
+    control_config = load_setup_config("__control_lookahead__", config_directory() / "controls")
+    registry = TrialRegistry(settings.control_registry_path)
+    results: list[dict[str, Any]] = []
+    for split in ("train", "validation"):
+        results.extend(
+            _execute_study(
+                control_config,
+                split,
+                False,
+                registry,
+                settings,
+                costs,
+                project_config.base.random_seed,
+                universe_path=settings.provisional_universe_path,
+                provisional=True,
+                setup=LookAheadControl(control_config),
+                control=True,
+            )
+        )
+    summary = summarize_control_results(registry.rows(), gates)
+    typer.echo(
+        json.dumps(
+            {
+                "control": LookAheadControl.name,
+                "label": "POSITIVE CONTROL: INVALID LOOK-AHEAD, NOT RESEARCH EVIDENCE",
+                "excluded_from": ["multiple_testing_totals", "study_reports", "approvals"],
+                "data_bias_status": load_data_bias_status(project_config),
+                "verdict": "control_pass" if summary["pass"] else "control_fail",
+                "splits_run": ["train", "validation"],
+                "trials_appended": len(results),
+                **summary,
+                "disclaimer": "Research output, not advice; no guarantee of profit.",
+            },
+            indent=2,
+            allow_nan=True,
+        )
+    )
+
+
+def _eligible_report_rows(registry: TrialRegistry, provisional: bool) -> list[dict[str, Any]]:
+    """Return report rows, excluding diagnostic controls and non-requested trials."""
+    rows = [
+        row
+        for row in registry.rows()
+        if not row["split"].startswith("backtest:")
+        and json.loads(row["metrics_json"]).get("control") is not True
+    ]
+    if provisional:
+        rows = [
+            row
+            for row in rows
+            if row["split"] in {"train", "validation"}
+            and json.loads(row["metrics_json"]).get("provisional") is True
+        ]
+    return rows
+
+
 @study_app.command("report")
 def study_report(
     provisional: Annotated[
@@ -1004,14 +1080,7 @@ def study_report(
     config = load_config()
     data_bias_status = load_data_bias_status(config)
     registry = TrialRegistry(settings.trial_registry_path)
-    rows = [row for row in registry.rows() if not row["split"].startswith("backtest:")]
-    if provisional:
-        rows = [
-            row
-            for row in rows
-            if row["split"] in {"train", "validation"}
-            and json.loads(row["metrics_json"]).get("provisional") is True
-        ]
+    rows = _eligible_report_rows(registry, provisional)
     p_values: list[float] = []
     for row in rows:
         metrics = json.loads(row["metrics_json"])

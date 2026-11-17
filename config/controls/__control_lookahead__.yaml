@@ -1,0 +1,14 @@
+name: __control_lookahead__
+universe: nse_equities
+rationale: >-
+  POSITIVE CONTROL ONLY. This rule deliberately reads tomorrow's close and is invalid
+  for research. It exists solely to prove that the real-data pipeline can detect a
+  known edge; it is not an economic hypothesis, is outside the setup registry, and
+  is excluded from FDR totals, reports, and approvals.
+params:
+  traded_value_window: 20
+filters:
+  minimum_price: 20
+  minimum_average_traded_value: 5000000
+exit_rules: {}
+sweep_grid: {}

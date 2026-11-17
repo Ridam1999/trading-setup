@@ -25,6 +25,7 @@ class StudySettings(BaseModel):
     benchmark_trend_length: int = Field(ge=1)
     volatility_lookback: int = Field(ge=1)
     trial_registry_path: Path
+    control_registry_path: Path = Path("data/duckdb/controls.sqlite")
     events_dir: Path
     provisional_universe_path: Path = Path("config/universe_provisional.yaml")
     provisional_report_path: Path = Path("reports/study_report_provisional.html")

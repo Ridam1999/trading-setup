@@ -8,6 +8,8 @@ benchmark_symbol: NIFTYBEES
 benchmark_trend_length: 200
 volatility_lookback: 20
 trial_registry_path: data/duckdb/trials.sqlite
+# Deliberately invalid look-ahead control is isolated from research totals.
+control_registry_path: data/duckdb/controls.sqlite
 events_dir: reports/study_events
 # Kill-stage-only settings: train/validation, top-100 point-in-time universe.
 provisional_universe_path: config/universe_provisional.yaml
