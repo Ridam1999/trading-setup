@@ -93,6 +93,13 @@
 - `select_fundamentals_as_of` uses only rows announced on or before the supplied cutoff; the caller must apply the configured session lag. A regression test proves a restatement cannot leak into an earlier cutoff.
 - Parsing is best-effort and needs manual review before any fundamental factor is computed. `pypdf` is pinned in `pyproject.toml` and `uv.lock`; no new network path is added.
 
+# Public PIT acquisition smoke test
+
+- "Go next" after the blocked real run is interpreted as authorization for one bounded public-data acquisition smoke test, not a full 20-year download, a real factor run, or a change to the frozen design.
+- The smoke test uses a temporary config with a one-session date window. It contacts only the already configured public NSE endpoints, uses no credentials or vendor spend, and writes only under the configured local `data/pit` paths.
+- A failed endpoint is recorded as an infrastructure blocker. EOD2 or any other survivor-biased source is not substituted, and no factor result is fabricated to bypass the blocker.
+- The live 2026 UDiFF header uses `TTL_TRD_QNTY` for volume and `DELIV_PER` for delivery percentage. The parser now maps that quantity alias; the downloaded file is kept locally and excluded from Git because acquired PIT data is not a source artifact.
+
 # Factor study execution
 
 - "Go next achieve the goal" is interpreted as authorization to build the frozen study execution layer, not to acquire data, contact a vendor, approve a setup, or unlock the holdout. With no PIT inputs present, `factor run` still exits non-zero before loading any data.

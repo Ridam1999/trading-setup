@@ -75,6 +75,13 @@
 - `select_fundamentals_as_of` enforces cutoff-based causality, with a test showing a 2018-style restatement pattern cannot alter a 2017 cutoff. The caller must still apply the configured session-based announcement lag.
 - `pypdf==7.1.0` is pinned in `pyproject.toml` and `uv.lock`. No new credential, vendor, live-order, or network path is introduced by parsing.
 
+# Public PIT smoke-test decision (2026-11-18)
+
+- "Go next" after the blocked real run is interpreted as authorization for a bounded smoke test of the configured public acquisition path, not a full historical download or a factor run.
+- A one-session 2026-11-13 UDiFF bhavcopy downloaded successfully from the configured public archive. Parsing exposed a real header mismatch: current files use `TTL_TRD_QNTY`, which the canonical volume aliases did not include.
+- The parser now maps that alias, and a fixture using the live header proves volume, delivery quantity, delivery percentage, EQ-series filtering, and date parsing. The frozen factor design, readiness checks, and cost/gate thresholds were not changed.
+- The one downloaded file remains under local `data/pit`, now gitignored. Full acquisition still requires a separate explicit action, followed by manifest/coverage review and manual fundamental validation before any real factor study.
+
 # Factor-study execution decision (2026-11-18)
 
 - The next bounded step builds the execution engine and candidate-only report. It does not acquire data, run a real study, approve a setup, or open the holdout.

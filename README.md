@@ -168,11 +168,13 @@ uv run --no-sync nse-engine factor acquire fundamentals
 
 Run them in that order. `prices` writes immutable dated bhavcopies under `data/pit/bhavcopy`; `membership` derives top-N snapshots using only data available at each rebalance date; `announcements` downloads public announcement metadata into `data/pit/announcement_index.parquet` and raw JSON chunks; `filings` downloads linked PDFs without overwriting existing copies; `fundamentals` appends parsed, announcement-dated EPS, net-profit, and equity rows to `data/pit/fundamentals_announcements.parquet`. NIFTYBEES remains in the price store as the benchmark reference but is excluded from equity membership by `config/factor_data.yaml`. All commands print the research disclaimer.
 
+A bounded live smoke test downloaded the public 2026-11-13 UDiFF bhavcopy and parsed 2,744 EQ rows including NIFTYBEES. It exposed a current-header volume alias (`TTL_TRD_QNTY`), which is now mapped and covered by a fixture. The downloaded file stays under local `data/pit` and is gitignored; full historical acquisition has not been run.
+
 The parser is best-effort: label patterns and crore scaling live in YAML, missing or unparseable PDFs are reported, and prior rows are never overwritten. A restatement appends a later-announcement row, and `select_fundamentals_as_of` shows that later values cannot leak into earlier cutoffs. Manual review is still required before these values are trusted.
 
 ### Frozen factor-study execution
 
-The execution layer is available but remains blocked until the three PIT inputs actually exist:
+The execution layer is available but remains blocked until the remaining PIT inputs exist (the smoke-test price store is present; membership and fundamentals are still missing):
 
 ```bash
 make factor-run
