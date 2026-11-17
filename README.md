@@ -170,11 +170,11 @@ Run them in that order. `prices` writes immutable dated bhavcopies under `data/p
 
 A bounded live smoke test downloaded the public 2026-11-13 UDiFF bhavcopy and parsed 2,744 EQ rows including NIFTYBEES. It exposed a current-header volume alias (`TTL_TRD_QNTY`), which is now mapped and covered by a fixture. The downloaded file stays under local `data/pit` and is gitignored; full historical acquisition has not been run.
 
-The parser is best-effort: label patterns and crore scaling live in YAML, missing or unparseable PDFs are reported, and prior rows are never overwritten. A restatement appends a later-announcement row, and `select_fundamentals_as_of` shows that later values cannot leak into earlier cutoffs. Manual review is still required before these values are trusted.
+The parser is best-effort: label patterns and crore scaling live in YAML, missing or unparseable PDFs are reported, and prior rows are never overwritten. Malformed PDFs are counted as unparsed instead of aborting the batch. A restatement appends a later-announcement row, and `select_fundamentals_as_of` shows that later values cannot leak into earlier cutoffs. Manual review is still required before these values are trusted. A bounded 2005–2022 public acquisition and a 200-filing diagnostic sample are summarized in [docs/FACTOR_DATA_REVIEW.md](docs/FACTOR_DATA_REVIEW.md); extraction coverage was insufficient, so the real factor run remains blocked pending a manual data-source decision.
 
 ### Frozen factor-study execution
 
-The execution layer is available but remains blocked until the remaining PIT inputs exist (the smoke-test price store is present; membership and fundamentals are still missing):
+The execution layer is available but remains blocked until trusted fundamentals exist (historical prices and PIT membership are present; the diagnostic fundamentals sample is not approved input):
 
 ```bash
 make factor-run
@@ -198,6 +198,6 @@ Every hypothesis/horizon/split result is appended to the append-only trial regis
 4. Paper trading: implementation complete; the optimized real-data no-signal run is verified, and approvals remain empty.
 5. UI and reports: complete with a seven-page read-only Streamlit dashboard and reusable Plotly/HTML charts; `make ui` launches it.
 6. Broker interface: complete with live trading disabled; Groww order methods always raise `LiveTradingDisabled`.
-7. Next research program: factor study pre-registered and frozen with a ₹0 budget; the readiness gate, public-data acquisition bot, fundamentals parser, execution engine, and candidate-only report exist. No real factor study has run, no trials have been appended, and no holdout data has been accessed.
+7. Next research program: factor study pre-registered and frozen with a ₹0 budget; the readiness gate, public-data acquisition bot, fundamentals parser, execution engine, and candidate-only report exist. Public prices, membership, and announcements were acquired only through 2022, but extracted fundamentals failed diagnostic review. No real factor study has run, no trials have been appended, and no holdout data has been accessed.
 
 See [docs/STATUS.md](docs/STATUS.md) for verification and manual prerequisites, [docs/REAL_DATA_RUNBOOK.md](docs/REAL_DATA_RUNBOOK.md) for the adapted EOD2 workflow, and [docs/SPEC.md](docs/SPEC.md) for requirements and acceptance criteria.

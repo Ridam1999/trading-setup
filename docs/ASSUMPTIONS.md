@@ -112,6 +112,14 @@
 - Every executed hypothesis/horizon/split combination is appended once to the append-only registry. Passing all gates produces `candidate: true` only; approval files, the bias flag, and holdout state remain untouched.
 - The report shows the configured data-bias status, frozen hash, per-gate failures, yearly results, benchmark comparisons, and the research disclaimer. A candidate requires separate point-in-time verification before it can be treated as evidence.
 
+# Public PIT acquisition to 2022 and fundamental review blocker
+
+- "Go next until a real manual blocker" is interpreted as authorization to run the public acquisition chain only through `2022-12-31`. A temporary config outside the repository copied the frozen `factor.yaml` byte-for-byte and bounded acquisition to 2005–2022; no holdout-period bhavcopy, membership row, announcement, filing, or price read was fetched.
+- The 2026 smoke-test bhavcopy was moved to a quarantine path outside the active `year=*/date=*/bhavcopy.*` layout, so it cannot enter membership construction or a default factor run.
+- Price snapshots and membership loaded successfully from 2005 through 2022. The announcement API also returned history back to 2005. The configured headline filter reduced 970,721 announcements to 42,190 candidate result PDFs, still too many to download without first validating extraction quality.
+- A deterministic 200-row diagnostic sample produced only 13 rows across two of the three frozen fields and no average-shareholders-equity values. Several extracted numbers are implausible, so the extracted fundamentals remain untrusted. This is a manual source/extraction review blocker, not a reason to fabricate a factor result, download all filings blindly, change the frozen design, or unlock the holdout.
+- A malformed sample PDF caused `pypdf` to raise during batch parsing. The parser now catches that read error and counts the filing as unparsed; the malformed-file behavior is covered by a unit test.
+
 # Remaining phases (5 and 6)
 
 - "Complete the pending phases first" is interpreted as Phase 5 (UI and reports) and Phase 6 (broker interface, live disabled), the two phases marked Not started in `docs/STATUS.md`. Phase 3's real-data portfolio run remains blocked because `config/approved_setups.yaml` is empty and holdout is locked; it is a research outcome, not an implementation gap, and is not fabricated.
