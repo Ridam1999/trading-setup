@@ -86,7 +86,7 @@ The verified 2026-11-13 run wrote `reports/paper/paper_2026-11-13.md` and `repor
 
 0. Bootstrap: complete.
 1. Data: EOD2 market history loaded with partitioned health checks; PIT import, corporate-action adjustment, and verification commands added. Source remains survivor-biased until licensed PIT data is supplied and reviewed.
-2. Event study: ETF and stock train/validation studies are complete and all rejected; a seeded random-signal control also fails. Holdout remains locked.
+2. Event study: free-data provisional kill stage complete on train/validation; all six setups (ETF and stock, plus a seeded random-signal control) rejected across 70 gate groups, with 0 provisional passes and 0 approvals. Holdout remains locked and `SURVIVOR_BIASED` is unchanged.
 3. Portfolio backtest: implementation complete; synthetic acceptance passes, real-data run pending.
 4. Paper trading: implementation complete; the optimized real-data no-signal run is verified, and approvals remain empty.
 5. UI and reports: not started.

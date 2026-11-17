@@ -8,7 +8,7 @@ Last updated: 2026-11-18
 | --- | --- | --- |
 | 0. Bootstrap | Complete | Configuration, CLI, logging, pinned environment, and repository setup. |
 | 1. Data | Loaded; partitioned health check and PIT tooling complete | Imported EOD2 history through 2026-11-13: 7,861,421 rows across 3,733 symbols, 1995-01-02 onward, including NIFTYBEES. The full check completes in about 20 seconds across 32 year partitions and writes HTML plus row-level CSV. It reports zero criticals in the configured post-2005 tradable universe; 38,078 warnings remain, principally older/index-series structural issues and missing sessions. Phase 1 also adds `data import-pit`, corporate-action adjustment, dated membership loading, source priority, and `data verify-pit` with fixture tests. No licensed PIT data is supplied; EOD2 remains survivor-biased and lacks dividend/right adjustments. |
-| 2. Event study | Train/validation complete; all setups rejected | ETF and all three stock setups ran on both non-holdout splits, plus a seeded `random_signal` negative control on train. Every horizon is rejected; no setup is approved or provisionally passed under `SURVIVOR_BIASED`. The vectorized event study reduced a 3-year stock slice from 58.4s to 6.7s. Holdout was not accessed. |
+| 2. Event study | Free-data provisional kill stage complete; all setups rejected | Six setups (ETF timing, four stock setups, and a seeded `random_signal` negative control) ran on train and validation via explicit `--provisional` mode, using a point-in-time top-100 liquidity universe for stocks. 140 provisional trials appended; 70 setup/parameter/horizon gate groups all rejected, 0 provisional passes, 0 approvals. The vectorized event study reduced a 3-year stock slice from 58.4s to 6.7s. Holdout was never accessed and no approval file was written. |
 | 3. Portfolio backtest | Implementation complete; real-data run pending | Daily simulator, risk sizing, exits, metrics, walk-forward selection, stress tests, Monte Carlo, and Plotly reports are implemented. Synthetic acceptance tests pass. |
 | 4. Paper trading | Implementation complete; real-data no-signal run verified | Scanner, next-session fills, exits, SQLite ledger, deterministic markdown/JSON reports, decay monitor, and idempotent `paper run` CLI are implemented. Session bars are loaded only for the signal date and pending-order fill dates; preparing the full 7.86M-row history takes about 1.6s and materializing one session about 0.5s. The 2026-11-13 run produced a no-signal report and an idempotent second run left all artifacts byte-identical. |
 | 5. UI and reports | Not started | |
@@ -16,11 +16,11 @@ Last updated: 2026-11-18
 
 ## Verification
 
-- make check: passed after the event-study, paper-run, and PIT-data changes.
+- make check: passed after the event-study, paper-run, PIT-data, and provisional kill-stage changes.
 - Ruff lint and formatting: passed.
 - Mypy: passed across 63 source files.
-- Pytest: 72 passed, including EOD2 import, quality checks, capped-cost hand arithmetic, bias gates, point-in-time universe ranking, vectorized fill/cost equivalence, negative-control determinism, portfolio reconciliation, paper idempotency, no-signal, next-session fill, delayed-fill, causality, membership alignment, and decay tests, plus 11 PIT tests covering action compounding, before-ex-date adjustment, raw-close preservation, validation, membership dates, source priority, and date-bounded reads.
-- Real-data event studies: 50 trials logged; `study report` reports 0 approved setups and 0 provisional passes.
+- Pytest: 75 passed, including EOD2 import, quality checks, capped-cost hand arithmetic, bias gates, provisional gates, top-100 provisional universe, approval-file safety, point-in-time universe ranking, vectorized fill/cost equivalence, negative-control determinism, portfolio reconciliation, paper idempotency, no-signal, next-session fill, delayed-fill, causality, membership alignment, and decay tests, plus 11 PIT tests covering action compounding, before-ex-date adjustment, raw-close preservation, validation, membership dates, source priority, and date-bounded reads.
+- Free-data provisional kill stage: 140 provisional trials logged (0 errors), 70 setup/parameter/horizon gate groups all rejected, 0 provisional passes, 0 approvals, holdout untouched. `study report --provisional` writes `reports/study_report_provisional.html` and does not write `approved_setups.yaml`.
 - Real-data paper run: `paper run --date 2026-11-13` completed with 0 signals, 0 orders, and 0 fills; both output files were byte-identical after a repeat run and the ledger still has one `runs` row.
 - Phase 3 commit: a91c999 (Implement Phase 3 portfolio backtests).
 
@@ -34,28 +34,22 @@ The EOD2 directory was obtained and imported into the local store. The configure
 
 Groww rates checked on 2026-11-16 are encoded in `config/costs.yaml`, including ₹5–₹20 / 0.1% per-order brokerage, IPFT and ₹20 sale DP. GST covers brokerage, exchange, SEBI, IPFT, and DP charges, not STT/stamp duty. A hand check for a ₹1,000 buy gives ₹7.088586 in charges; a ₹1,000 sell gives ₹30.538586 under the configured male-account DP assumption. Slippage remains a configured 10 bps assumption, not a verified Groww rate.
 
-`config/research.yaml` sets `data_bias_status: SURVIVOR_BIASED`. Study reports may show `provisional_pass`, never `approved`, and the approval YAML is empty. The ETF timing setup covers NIFTYBEES, BANKBEES, JUNIORBEES, LIQUIDBEES, GOLDBEES, ITBEES, and PHARMABEES. ETF, stock, and negative-control trials are summarized in `reports/study_report.html`. The seeded `random_signal` control failed every horizon as required. The five earlier errored `pullback_uptrend` train trials remain in the append-only registry; the report uses the later successful trials.
+`config/research.yaml` still sets `data_bias_status: SURVIVOR_BIASED`; the flag is a statement of fact about the data and was not changed to unblock the kill stage. The free-data decision runs in explicit `--provisional` mode: train and validation only, a point-in-time top-100 liquidity universe for stock setups (`config/universe_provisional.yaml`), and gates that return `provisional_pass` or `rejected` but never `approved`. Every provisional report prints `SURVIVOR_BIASED` prominently, uses only provisional-tagged registry rows, and never writes or deletes `approved_setups.yaml`. The ETF timing setup covers NIFTYBEES, BANKBEES, JUNIORBEES, LIQUIDBEES, GOLDBEES, ITBEES, and PHARMABEES. The seeded `random_signal` control failed every horizon as required. Earlier standard-mode exploratory trials remain in the append-only registry but are excluded from the provisional report.
 
-ETF timing results at 2x modeled costs (expectancy per event):
+### Free-data provisional kill-stage results (2026-11-18)
 
-| Horizon | Train events / dates | Train expectancy | Validation events / dates | Validation expectancy |
-| ---: | ---: | ---: | ---: | ---: |
-| 1 day | 4 / 4 | -0.45% | 35 / 27 | +0.37% |
-| 3 days | 4 / 4 | +0.85% | 35 / 27 | +2.81% |
-| 5 days | 4 / 4 | +0.86% | 35 / 27 | +3.23% |
-| 10 days | 4 / 4 | +1.95% | 35 / 27 | +3.78% |
-| 20 days | 4 / 4 | +3.37% | 35 / 27 | +4.08% |
+Run with `study run`/`study sweep --provisional` on train and validation. Stock setups use the top-100 point-in-time traded-value universe in `config/universe_provisional.yaml`; ETF setups keep their configured symbol lists. Costs are modeled at the configured 2x stress multiplier. The table shows ranges across swept parameters and the 1, 3, 5, 10, and 20-day horizons; independent-date counts are per horizon.
 
-Stock kill-stage results at 2x modeled costs (ranges across the 1–20 day horizons; event/date counts are for the 1-day horizon):
+| Setup | Trials | Train independent dates | Train expectancy | Validation independent dates | Validation expectancy | Outcome |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| `etf_timing` | 10 | 4 | -0.45% to +3.37% | 27 | +0.37% to +4.08% | rejected (dates < 30) |
+| `index_dip` | 30 | 0 | no events | 0 | no events | rejected (no signals) |
+| `pullback_uptrend` | 30 | 1,853–2,728 | -1.11% to -0.41% | 760–1,104 | -0.97% to -0.65% | rejected (negative expectancy) |
+| `breakout_52w` | 30 | 17–28 | -1.51% to +2.88% | 1 | -8.75% to -5.83% | rejected (dates, expectancy) |
+| `vol_contraction` | 30 | 441–1,496 | -1.31% to +0.43% | 53–568 | -2.27% to -0.13% | rejected (breadth, stability) |
+| `random_signal` (negative control) | 10 | 1,890–1,900 | -1.09% to -0.36% | 716–729 | -1.19% to -0.49% | rejected (negative control) |
 
-| Setup | Train events / dates | Train expectancy range | Validation events / dates | Validation expectancy range | Outcome |
-| --- | ---: | ---: | ---: | ---: | --- |
-| `pullback_uptrend` | 31,526 / 2,812 | -1.04% to -0.33% | 12,111 / 1,132 | -0.94% to -0.67% | rejected |
-| `breakout_52w` | 126 / 110 | -1.09% to +0.76% | 30 / 29 | -0.06% to +1.39% | rejected (validation dates below 30) |
-| `vol_contraction` | 3,463 / 1,251 | -1.21% to -0.82% | 995 / 393 | -1.22% to -0.39% | rejected |
-| `random_signal` (negative control) | 5,627 / 2,633 | -1.08% to -0.46% | — | — | rejected |
-
-ETF samples remain small: train has only 4 independent dates and validation has 27. Stock samples are larger but all setups are cost-negative in train or validation at 2x costs. None constitutes approval, and the broad history remains biased.
+Some groups reached Benjamini–Hochberg adjusted p < 0.05 (notably `etf_timing` at h=3, p≈0.042, and several `vol_contraction` horizons down to p≈0.0009), but every group was rejected on cost-adjusted expectancy, independent-date count, symbol breadth, single-year profit concentration, or parameter-neighbour stability. No setup produced a `provisional_pass`, so none is a candidate for real-data verification. Because nothing survived, no dataset purchase or build is currently justified.
 
 EOD2 remains unsuitable as authoritative stock backtest history: it is not intended for backtesting, removes inactive/delisted stocks after a year, and excludes dividend/right-action adjustments. Treat failed setups on this data as kill-stage evidence only; any pass requires point-in-time, delisted-inclusive, total-return history to confirm.
 
