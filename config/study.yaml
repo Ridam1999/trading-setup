@@ -9,3 +9,6 @@ benchmark_trend_length: 200
 volatility_lookback: 20
 trial_registry_path: data/duckdb/trials.sqlite
 events_dir: reports/study_events
+# Kill-stage-only settings: train/validation, top-100 point-in-time universe.
+provisional_universe_path: config/universe_provisional.yaml
+provisional_report_path: reports/study_report_provisional.html

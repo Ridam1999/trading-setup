@@ -58,7 +58,7 @@ from nse_engine.setups.base import SetupConfig, load_setup_config
 from nse_engine.setups.registry import create_setup
 from nse_engine.study.config import load_gate_settings, load_study_settings
 from nse_engine.study.events import build_event_study
-from nse_engine.study.gates import evaluate_setup_gates
+from nse_engine.study.gates import evaluate_provisional_gates, evaluate_setup_gates
 from nse_engine.study.splits import SplitName, configured_split, resolve_split
 from nse_engine.study.stats import (
     benjamini_hochberg,
@@ -75,6 +75,7 @@ study_app = typer.Typer(help="Run and review rule-based event studies.")
 backtest_app = typer.Typer(help="Run daily portfolio simulations and walk-forward tests.")
 paper_app = typer.Typer(help="Run the daily paper-trading scanner and ledger.")
 logger = logging.getLogger(__name__)
+PROVISIONAL_BANNER = "SURVIVOR_BIASED: PROVISIONAL KILL STAGE; NOT APPROVAL EVIDENCE"
 app.add_typer(data_app, name="data")
 app.add_typer(study_app, name="study")
 app.add_typer(backtest_app, name="backtest")
@@ -111,6 +112,13 @@ def config_check(
             indent=2,
         )
     )
+
+
+def _guard_provisional_split(split: SplitName, provisional: bool) -> None:
+    """Block holdout access in kill-stage mode before any registry access."""
+    if provisional and split == "holdout":
+        typer.echo("Provisional studies are train/validation only; holdout is locked.", err=True)
+        raise typer.Exit(code=2)
 
 
 def _store() -> tuple[MarketDataStore, DataConfig]:
@@ -804,13 +812,15 @@ def _execute_study(
     settings: Any,
     costs_config: Any,
     seed: int,
+    universe_path: Path | None = None,
+    provisional: bool = False,
 ) -> list[dict[str, Any]]:
     """Run one setup/split experiment and append one registry row per horizon."""
     frame, start, end = _study_inputs(split, unlock_holdout, registry)
     setup = create_setup(setup_config)
     membership: pd.Series | None = None
     if setup_config.universe == "nse_equities":
-        universe_settings = liquidity_universe_settings()
+        universe_settings = liquidity_universe_settings(universe_path)
         membership = point_in_time_liquidity_membership(
             frame,
             int(universe_settings["top_n"]),
@@ -840,7 +850,11 @@ def _execute_study(
                 setup_config,
                 split,
                 horizon,
-                {"status": "error", "error": str(error)},
+                {
+                    "status": "error",
+                    "error": str(error),
+                    **({"provisional": True} if provisional else {}),
+                },
             )
         raise
     settings.events_dir.mkdir(parents=True, exist_ok=True)
@@ -857,6 +871,8 @@ def _execute_study(
             horizon_events = events.loc[events["horizon"] == horizon].copy()
             horizon_events.to_parquet(event_path, index=False)
         metrics["event_data_path"] = str(event_path) if event_path else None
+        if provisional:
+            metrics["provisional"] = True
         trial_id = registry.append_trial(setup_config, split, horizon, metrics)
         results.append({"trial_id": trial_id, "split": split, "horizon": horizon, **metrics})
     return results
@@ -869,8 +885,12 @@ def study_run(
     unlock_holdout: Annotated[
         bool, typer.Option("--unlock-holdout", help="Audit and unlock holdout access.")
     ] = False,
+    provisional: Annotated[
+        bool, typer.Option("--provisional", help="Kill-stage mode: train/validation, no approvals.")
+    ] = False,
 ) -> None:
     """Run a setup event study on one configured split."""
+    _guard_provisional_split(split, provisional)
     try:
         project_config = load_config()
         settings = load_study_settings()
@@ -885,6 +905,8 @@ def study_run(
             settings,
             costs,
             project_config.base.random_seed,
+            universe_path=settings.provisional_universe_path if provisional else None,
+            provisional=provisional,
         )
     except PermissionError as error:
         typer.echo(str(error), err=True)
@@ -892,11 +914,14 @@ def study_run(
     except (ValueError, FileNotFoundError) as error:
         typer.echo(f"Study failed: {error}", err=True)
         raise typer.Exit(code=1) from error
+    if provisional:
+        typer.echo(PROVISIONAL_BANNER, err=True)
     typer.echo(
         json.dumps(
             {
                 "setup": setup_name,
                 "split": split,
+                "mode": "provisional" if provisional else "standard",
                 "data_bias_status": load_data_bias_status(project_config),
                 "results": results,
                 "disclaimer": "Research output, not advice; no guarantee of profit.",
@@ -914,8 +939,12 @@ def study_sweep(
     unlock_holdout: Annotated[
         bool, typer.Option("--unlock-holdout", help="Audit and unlock holdout access.")
     ] = False,
+    provisional: Annotated[
+        bool, typer.Option("--provisional", help="Kill-stage mode: train/validation, no approvals.")
+    ] = False,
 ) -> None:
     """Run every declared parameter value and append each experiment."""
+    _guard_provisional_split(split, provisional)
     try:
         project_config = load_config()
         settings = load_study_settings()
@@ -936,6 +965,8 @@ def study_sweep(
                         settings,
                         costs,
                         project_config.base.random_seed,
+                        universe_path=settings.provisional_universe_path if provisional else None,
+                        provisional=provisional,
                     )
                 )
     except PermissionError as error:
@@ -944,11 +975,14 @@ def study_sweep(
     except (ValueError, FileNotFoundError) as error:
         typer.echo(f"Study sweep failed: {error}", err=True)
         raise typer.Exit(code=1) from error
+    if provisional:
+        typer.echo(PROVISIONAL_BANNER, err=True)
     typer.echo(
         json.dumps(
             {
                 "setup": setup_name,
                 "split": split,
+                "mode": "provisional" if provisional else "standard",
                 "data_bias_status": load_data_bias_status(project_config),
                 "trials": trials,
                 "disclaimer": "Research output, not advice; no guarantee of profit.",
@@ -959,14 +993,25 @@ def study_sweep(
 
 
 @study_app.command("report")
-def study_report() -> None:
-    """Write an HTML trial/FDR/gate report and approved-setups registry."""
+def study_report(
+    provisional: Annotated[
+        bool, typer.Option("--provisional", help="Report only kill-stage trials; never approve.")
+    ] = False,
+) -> None:
+    """Write an HTML trial/FDR/gate report; provisional mode never writes approvals."""
     settings = load_study_settings()
     gates = load_gate_settings()
     config = load_config()
     data_bias_status = load_data_bias_status(config)
     registry = TrialRegistry(settings.trial_registry_path)
     rows = [row for row in registry.rows() if not row["split"].startswith("backtest:")]
+    if provisional:
+        rows = [
+            row
+            for row in rows
+            if row["split"] in {"train", "validation"}
+            and json.loads(row["metrics_json"]).get("provisional") is True
+        ]
     p_values: list[float] = []
     for row in rows:
         metrics = json.loads(row["metrics_json"])
@@ -1008,7 +1053,7 @@ def study_report() -> None:
         neighbour_values = _neighbour_expectancies(
             setup_name, params_hash, horizon, trials, rows, gates
         )
-        gate_result = evaluate_setup_gates(
+        gate_args = (
             metrics_by_split,
             adj_p,
             yearly_frame,
@@ -1016,15 +1061,19 @@ def study_report() -> None:
             neighbour_values,
             rationale,
             gates,
-            data_bias_status,
         )
-        verdict = (
-            "approved"
-            if gate_result.approved
-            else "provisional_pass"
-            if gate_result.provisional_pass
-            else "rejected"
-        )
+        if provisional:
+            gate_result = evaluate_provisional_gates(*gate_args)
+            verdict = "provisional_pass" if gate_result.provisional_pass else "rejected"
+        else:
+            gate_result = evaluate_setup_gates(*gate_args, data_bias_status)
+            verdict = (
+                "approved"
+                if gate_result.approved
+                else "provisional_pass"
+                if gate_result.provisional_pass
+                else "rejected"
+            )
         report_rows.append(
             {
                 "setup": setup_name,
@@ -1047,7 +1096,19 @@ def study_report() -> None:
                 }
             )
     bias_status = data_bias_status.replace("_", " ").lower()
-    report_path = Path("reports/study_report.html")
+    report_path = (
+        settings.provisional_report_path if provisional else Path("reports/study_report.html")
+    )
+    banner_html = (
+        "<div style='border:3px solid #b00;background:#fff3f3;padding:1rem;"
+        "font-size:1.4rem;font-weight:bold;color:#b00'>"
+        + html.escape(PROVISIONAL_BANNER)
+        + "<br><span style='font-size:1rem;font-weight:normal'>"
+        "Train/validation only. A fail discards the setup; a pass is a candidate, "
+        "not a result. No approved_setups.yaml is written.</span></div>"
+        if provisional
+        else ""
+    )
     report_path.parent.mkdir(parents=True, exist_ok=True)
     rows_html_parts = []
     for row in report_rows:
@@ -1065,25 +1126,34 @@ def study_report() -> None:
     html_report = (
         "<!doctype html><html><head><meta charset='utf-8'><title>Study report</title></head><body>"
         "<h1>Event-study trial report</h1>"
+        f"{banner_html}"
         "<p>Research output, not advice; no guarantee of profit.</p>"
         f"<p>Survivorship-bias status: {html.escape(bias_status)}</p>"
         f"<p>Data-bias status: {html.escape(data_bias_status)}</p>"
-        f"<p>Logged trials: {registry.trial_count()}</p>"
+        f"<p>Trials in this report: {len(rows)} (registry total {registry.trial_count()})</p>"
         "<table><thead><tr><th>Setup</th><th>Horizon</th><th>Verdict</th>"
         "<th>BH adjusted p</th><th>Failed gates</th></tr></thead>"
         f"<tbody>{rows_html}</tbody></table></body></html>"
     )
     report_path.write_text(html_report, encoding="utf-8")
-    approval_path = config_directory() / "approved_setups.yaml"
-    if data_bias_status == "SURVIVOR_BIASED":
-        approved = []
-    approval_path.write_text(
-        yaml.safe_dump({"approved_setups": approved}, sort_keys=False), encoding="utf-8"
-    )
+    if provisional:
+        typer.echo(
+            f"Provisional mode did not write {config_directory() / 'approved_setups.yaml'}",
+            err=True,
+        )
+    else:
+        approval_path = config_directory() / "approved_setups.yaml"
+        if data_bias_status == "SURVIVOR_BIASED":
+            approved = []
+        approval_path.write_text(
+            yaml.safe_dump({"approved_setups": approved}, sort_keys=False), encoding="utf-8"
+        )
+    if provisional:
+        typer.echo(PROVISIONAL_BANNER, err=True)
     typer.echo(
-        f"Wrote {report_path}; data bias {data_bias_status}; "
-        f"approved {len(approved)}; provisional passes "
-        f"{sum(row['verdict'] == 'provisional_pass' for row in report_rows)}."
+        f"Wrote {report_path}; mode {'provisional' if provisional else 'standard'}; "
+        f"data bias {data_bias_status}; approved {0 if provisional else len(approved)}; "
+        f"provisional passes {sum(row['verdict'] == 'provisional_pass' for row in report_rows)}."
     )
 
 

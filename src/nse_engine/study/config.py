@@ -26,6 +26,8 @@ class StudySettings(BaseModel):
     volatility_lookback: int = Field(ge=1)
     trial_registry_path: Path
     events_dir: Path
+    provisional_universe_path: Path = Path("config/universe_provisional.yaml")
+    provisional_report_path: Path = Path("reports/study_report_provisional.html")
 
 
 class GateSettings(BaseModel):

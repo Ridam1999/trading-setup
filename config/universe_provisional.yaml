@@ -1,0 +1,11 @@
+name: nse_equities_provisional
+symbols: []
+survivorship_biased: true
+# Tighter liquid large-cap screen for the survivor-biased kill stage.
+point_in_time_liquidity:
+  top_n: 100
+  trailing_days: 60
+  minimum_price: 20
+  minimum_history: 60
+  # EOD2 index series use names with spaces; they are not tradable stock symbols.
+  excluded_symbol_pattern: '\s'

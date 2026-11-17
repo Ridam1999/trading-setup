@@ -19,6 +19,31 @@ class GateResult:
     checks: dict[str, dict[str, Any]]
 
 
+def evaluate_provisional_gates(
+    split_metrics: dict[str, dict[str, Any]],
+    adjusted_p_value: float,
+    yearly: pd.DataFrame,
+    breadth: float,
+    neighbour_expectancies: list[float],
+    rationale: str,
+    settings: GateSettings,
+) -> GateResult:
+    """Evaluate the kill stage, which can pass provisionally but never approve."""
+    result = evaluate_setup_gates(
+        split_metrics,
+        adjusted_p_value,
+        yearly,
+        breadth,
+        neighbour_expectancies,
+        rationale,
+        settings,
+        data_bias_status="SURVIVOR_BIASED",
+    )
+    return GateResult(
+        approved=False, provisional_pass=result.provisional_pass, checks=result.checks
+    )
+
+
 def evaluate_setup_gates(
     split_metrics: dict[str, dict[str, Any]],
     adjusted_p_value: float,
