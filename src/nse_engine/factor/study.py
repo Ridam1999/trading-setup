@@ -22,12 +22,16 @@ from nse_engine.backtest.costs import CostsConfig, round_trip_cost
 from nse_engine.backtest.fills import buy_limit_fill, time_exit_fill
 from nse_engine.factor.acquire import load_pit_bars
 from nse_engine.factor.config import (
+    FULL_HYPOTHESES,
     FUNDAMENTAL_AVERAGE_EQUITY,
     FUNDAMENTAL_DILUTED_EPS,
     FUNDAMENTAL_NET_PROFIT,
     FactorConfig,
     FactorDataConfig,
     Hypothesis,
+    HypothesisId,
+    requires_fundamentals,
+    resolve_hypotheses,
 )
 from nse_engine.factor.readiness import verify_preregistration
 from nse_engine.setups.base import SetupConfig
@@ -90,6 +94,8 @@ class FactorStudyOutput:
     results: tuple[FactorStudyResult, ...]
     report_path: Path
     trials_appended: int
+    hypotheses: tuple[HypothesisId, ...] = FULL_HYPOTHESES
+    complete_design: bool = True
 
 
 def _verify_design(config: FactorConfig, prereg_path: Path) -> None:
@@ -103,34 +109,37 @@ def _empty_returns() -> pd.DataFrame:
     return pd.DataFrame(columns=list(RETURN_COLUMNS))
 
 
-def _load_inputs(data: FactorDataConfig) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
-    """Load the three point-in-time inputs after all readiness checks pass."""
-    if (
-        data.pit_prices_dir is None
-        or data.membership_path is None
-        or data.fundamentals_path is None
-    ):
-        raise ValueError("Point-in-time factor inputs are not configured")
+def _load_inputs(
+    data: FactorDataConfig, hypothesis_ids: Sequence[HypothesisId] | None = None
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
+    """Load only the point-in-time inputs required by the selected hypotheses."""
+    if data.pit_prices_dir is None or data.membership_path is None:
+        raise ValueError("Point-in-time price and membership inputs are not configured")
     prices = load_pit_bars(data.pit_prices_dir)
     membership = pd.read_parquet(data.membership_path)
-    fundamentals = pd.read_parquet(data.fundamentals_path)
     if prices.empty:
         raise ValueError("Point-in-time price store is empty")
-    for name, frame, required in (
-        ("membership", membership, {"rebalance_date", "symbol"}),
-        (
-            "fundamentals",
-            fundamentals,
-            {"symbol", "announcement_date", "field", "value"},
-        ),
-    ):
-        missing = required.difference(frame.columns)
-        if missing:
-            raise ValueError(f"{name} is missing columns: {', '.join(sorted(missing))}")
+    missing_membership = {"rebalance_date", "symbol"}.difference(membership.columns)
+    if missing_membership:
+        raise ValueError(f"membership is missing columns: {', '.join(sorted(missing_membership))}")
     prices = prices.assign(_date=pd.to_datetime(prices["date"]).dt.date)
     membership = membership.assign(
         _rebalance_date=pd.to_datetime(membership["rebalance_date"]).dt.date
     )
+
+    selected_ids = tuple(hypothesis_ids) if hypothesis_ids is not None else FULL_HYPOTHESES
+    if not requires_fundamentals(selected_ids):
+        return prices, membership, None
+    if data.fundamentals_path is None:
+        raise ValueError("Announcement-dated fundamentals are required for the selected hypotheses")
+    fundamentals = pd.read_parquet(data.fundamentals_path)
+    missing_fundamentals = {"symbol", "announcement_date", "field", "value"}.difference(
+        fundamentals.columns
+    )
+    if missing_fundamentals:
+        raise ValueError(
+            f"fundamentals is missing columns: {', '.join(sorted(missing_fundamentals))}"
+        )
     fundamentals = fundamentals.assign(
         _announced=pd.to_datetime(fundamentals["announcement_date"]).dt.date
     )
@@ -236,11 +245,19 @@ def _momentum_value(
 def compute_factor_signals(
     prices: pd.DataFrame,
     membership: pd.DataFrame,
-    fundamentals: pd.DataFrame,
+    fundamentals: pd.DataFrame | None,
     factor: FactorConfig,
     rebalance_dates: list[date],
+    hypothesis_ids: Sequence[HypothesisId] | None = None,
 ) -> pd.DataFrame:
-    """Compute one causal ranked basket per hypothesis and rebalance date."""
+    """Compute causal ranked baskets for the selected frozen hypotheses."""
+    selected = resolve_hypotheses(factor, hypothesis_ids)
+    selected_ids = tuple(item.id for item in selected)
+    needs_fundamentals = requires_fundamentals(selected_ids)
+    if needs_fundamentals and fundamentals is None:
+        raise ValueError("Fundamental values are required for the selected hypotheses")
+    value_columns: tuple[HypothesisId, ...] = ("H1", "H2", "H3") if needs_fundamentals else ("H3",)
+
     sessions = sorted(set(prices["_date"]))
     histories: dict[str, list[tuple[date, float]]] = {}
     for symbol, group in prices.groupby("symbol", sort=True):
@@ -261,7 +278,6 @@ def compute_factor_signals(
     previous_baskets: dict[str, tuple[str, ...]] = {}
     basket_size = max(1, int(np.ceil(factor.universe.size * factor.construction.basket_fraction)))
     lag = factor.fundamentals.announcement_lag_sessions
-    hypotheses = {item.id: item for item in factor.hypotheses}
 
     for rebalance_date in rebalance_dates:
         universe = membership_by_date.get(rebalance_date, [])
@@ -270,28 +286,33 @@ def compute_factor_signals(
         cutoff = _eligible_cutoff(rebalance_date, sessions, lag)
         values: dict[str, list[float]] = {}
         for symbol in universe:
-            price = _latest_close(histories, symbol, rebalance_date)
-            earnings_yield, roe = _fundamental_values(symbol, cutoff, price, fundamentals)
-            momentum = _momentum_value(
-                symbol,
-                rebalance_date,
-                histories,
-                factor.price.momentum_skip_recent_sessions,
-                factor.price.momentum_lookback_sessions,
-            )
-            values[symbol] = [earnings_yield, roe, momentum]
+            by_column: dict[HypothesisId, float] = {}
+            if needs_fundamentals and fundamentals is not None:
+                price = _latest_close(histories, symbol, rebalance_date)
+                earnings_yield, roe = _fundamental_values(symbol, cutoff, price, fundamentals)
+                by_column["H1"] = earnings_yield
+                by_column["H2"] = roe
+            if "H3" in value_columns:
+                by_column["H3"] = _momentum_value(
+                    symbol,
+                    rebalance_date,
+                    histories,
+                    factor.price.momentum_skip_recent_sessions,
+                    factor.price.momentum_lookback_sessions,
+                )
+            values[symbol] = [by_column[column] for column in value_columns]
 
-        frame = pd.DataFrame.from_dict(values, orient="index", columns=["H1", "H2", "H3"])
-        zscores = pd.DataFrame(
-            {
-                column: _winsorized_zscore(frame[column], factor.winsorize_fraction)
-                for column in ("H1", "H2", "H3")
-            }
-        )
-        zscores["H4"] = zscores[["H1", "H2", "H3"]].mean(axis=1)
+        frame = pd.DataFrame.from_dict(values, orient="index", columns=list(value_columns))
+        zscore_data = {
+            column: _winsorized_zscore(frame[column], factor.winsorize_fraction)
+            for column in value_columns
+        }
+        zscores = pd.DataFrame(zscore_data)
+        if "H4" in selected_ids:
+            zscores["H4"] = zscores[["H1", "H2", "H3"]].mean(axis=1)
 
-        for identifier in ("H1", "H2", "H3", "H4"):
-            hypothesis = hypotheses[identifier]
+        for hypothesis in selected:
+            identifier = hypothesis.id
             if identifier == "H4":
                 scores = zscores["H4"]
                 display = scores
@@ -539,14 +560,22 @@ def evaluate_factor_gates(
     }
 
 
-def _trial_config(hypothesis: Hypothesis, horizon: int, factor: FactorConfig) -> SetupConfig:
-    """Represent one frozen hypothesis/horizon pair in the append-only registry."""
+def _trial_config(
+    hypothesis: Hypothesis,
+    horizon: int,
+    factor: FactorConfig,
+    hypothesis_ids: tuple[HypothesisId, ...],
+    complete_design: bool,
+) -> SetupConfig:
+    """Represent one scoped hypothesis/horizon pair in the append-only registry."""
     return SetupConfig(
         name=f"factor_{hypothesis.id.lower()}_{hypothesis.name.lower()}",
         universe=f"pit_traded_value_top_{factor.universe.size}_delisted_inclusive",
         rationale=hypothesis.definition,
         params={
             "hypothesis_id": hypothesis.id,
+            "hypothesis_scope": ",".join(hypothesis_ids),
+            "complete_frozen_design": complete_design,
             "horizon_months": horizon,
             "expected_sign": hypothesis.expected_sign,
             "universe_size": factor.universe.size,
@@ -579,9 +608,13 @@ def run_factor_study(
     prereg_path: Path,
     config_directory: Path | None = None,
     include_holdout: bool = False,
+    hypothesis_ids: Sequence[HypothesisId] | None = None,
 ) -> FactorStudyOutput:
-    """Run the frozen study for train/validation, optionally audited holdout."""
+    """Run the selected hypotheses for train/validation, optionally audited holdout."""
     _verify_design(factor, prereg_path)
+    selected = resolve_hypotheses(factor, hypothesis_ids)
+    selected_ids = tuple(item.id for item in selected)
+    complete_design = selected_ids == FULL_HYPOTHESES
     if factor.cost_stress_multiplier < gate_settings.minimum_cost_stress_multiplier:
         raise ValueError(
             "Factor cost stress is below the locked gate floor; no trials may be appended"
@@ -592,7 +625,7 @@ def run_factor_study(
         splits += ("holdout",)
     bounds = {name: configured_split(name, config_directory) for name in splits}
 
-    prices, membership, fundamentals = _load_inputs(data)
+    prices, membership, fundamentals = _load_inputs(data, selected_ids)
     observed_dates = sorted(set(prices["_date"]))
     if not observed_dates:
         raise ValueError("Point-in-time price store has no valid dates")
@@ -611,11 +644,12 @@ def run_factor_study(
     cutoff = _eligible_cutoff(
         max_used_date, used_sessions, factor.fundamentals.announcement_lag_sessions
     )
-    fundamentals = (
-        fundamentals.loc[fundamentals["_announced"] <= cutoff].copy()
-        if cutoff is not None
-        else fundamentals.iloc[0:0].copy()
-    )
+    if fundamentals is not None:
+        fundamentals = (
+            fundamentals.loc[fundamentals["_announced"] <= cutoff].copy()
+            if cutoff is not None
+            else fundamentals.iloc[0:0].copy()
+        )
 
     pending: list[dict[str, Any]] = []
     stress_key = f"{factor.cost_stress_multiplier:g}x_cost_stress"
@@ -632,7 +666,14 @@ def run_factor_study(
             for day in membership["_rebalance_date"].unique()
             if start <= day <= min(end, last_signal_date)
         )
-        signals = compute_factor_signals(prices, membership, fundamentals, factor, rebalance_dates)
+        signals = compute_factor_signals(
+            prices,
+            membership,
+            fundamentals,
+            factor,
+            rebalance_dates,
+            hypothesis_ids=selected_ids,
+        )
         returns = build_period_returns(
             signals,
             prices,
@@ -645,7 +686,7 @@ def run_factor_study(
         )
         if returns.empty:
             continue
-        for hypothesis in factor.hypotheses:
+        for hypothesis in selected:
             for horizon in factor.horizons_months:
                 frame = returns.loc[
                     (returns["hypothesis"] == hypothesis.id) & (returns["horizon"] == horizon)
@@ -698,11 +739,13 @@ def run_factor_study(
                 adjusted_p_value=float(adjusted_p_value),
                 gates=gates,
                 yearly=tuple(item["yearly"].to_dict("records")),
-                candidate=all(gates.values()),
+                candidate=all(gates.values()) and complete_design,
             )
             results.append(result)
             registry.append_trial(
-                _trial_config(item_hypothesis, item["horizon"], factor),
+                _trial_config(
+                    item_hypothesis, item["horizon"], factor, selected_ids, complete_design
+                ),
                 result.split,
                 item["horizon"],
                 {
@@ -713,6 +756,10 @@ def run_factor_study(
                     "gates": result.gates,
                     "candidate": result.candidate,
                     "yearly": list(result.yearly),
+                    "study_scope": {
+                        "hypotheses": list(selected_ids),
+                        "complete_frozen_design": complete_design,
+                    },
                 },
             )
 
@@ -720,4 +767,6 @@ def run_factor_study(
         results=tuple(results),
         report_path=data.report_path,
         trials_appended=len(results),
+        hypotheses=selected_ids,
+        complete_design=complete_design,
     )

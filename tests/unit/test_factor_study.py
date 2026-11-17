@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import math
 import shutil
 from datetime import date
@@ -388,3 +389,153 @@ def test_factor_run_cli_writes_candidate_report_without_approvals(
     assert "NOT APPROVAL EVIDENCE" in document
     assert approval_path.read_text(encoding="utf-8") == sentinel
     assert '"holdout_accessed": false' in result.output
+
+
+def test_h3_only_run_skips_fundamentals_and_suppresses_candidate_status(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A price-only H3 readout runs without fundamentals and is never a candidate."""
+    env = _environment(tmp_path, monkeypatch)
+    fundamentals_path = env["data"].fundamentals_path
+    assert fundamentals_path is not None
+    fundamentals_path.unlink()
+
+    output = run_factor_study(
+        env["factor"],
+        env["data"],
+        env["study"],
+        env["gates"],
+        env["costs"],
+        env["registry"],
+        env["prereg"],
+        config_directory=env["config_dir"],
+        hypothesis_ids=("H3",),
+    )
+    rows = env["registry"].rows(include_unlocks=True)
+
+    assert output.hypotheses == ("H3",)
+    assert output.complete_design is False
+    assert output.results
+    assert {result.hypothesis_id for result in output.results} == {"H3"}
+    assert all(result.candidate is False for result in output.results)
+    assert len(rows) == output.trials_appended == len(output.results)
+    assert all(json.loads(row["params_json"])["params"]["hypothesis_scope"] == "H3" for row in rows)
+    assert all(
+        json.loads(row["metrics_json"])["study_scope"]["complete_frozen_design"] is False
+        for row in rows
+    )
+    assert all(row["split"] != "holdout" for row in rows)
+
+
+def test_full_factor_run_still_blocks_without_fundamentals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The default four-hypothesis study cannot bypass the fundamental blocker."""
+    env = _environment(tmp_path, monkeypatch)
+    fundamentals_path = env["data"].fundamentals_path
+    assert fundamentals_path is not None
+    fundamentals_path.unlink()
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "factor",
+            "run",
+            "--directory",
+            str(env["config_dir"]),
+            "--prereg",
+            str(env["prereg"]),
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "[BLOCK] fundamentals_path" in result.output
+    assert "FACTOR STUDY BLOCKED" in result.output
+    assert env["registry"].rows(include_unlocks=True) == []
+
+
+def test_h3_only_signals_are_causal_and_entries_are_next_session(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Later price changes cannot alter earlier H3 baskets or next-session fills."""
+    env = _environment(tmp_path, monkeypatch)
+    prices, membership, _ = _prepared(env)
+    dates = [date(2020, 1, 31), date(2020, 2, 28)]
+    original = compute_factor_signals(
+        prices,
+        membership,
+        None,
+        env["factor"],
+        dates,
+        hypothesis_ids=("H3",),
+    )
+    assert set(original["hypothesis"].unique()) == {"H3"}
+
+    spiked_prices = env["prices"].copy()
+    future = pd.to_datetime(spiked_prices["date"]).dt.date > date(2021, 1, 1)
+    for column in ("open", "high", "low", "close"):
+        spiked_prices.loc[future, column] = spiked_prices.loc[future, column] * 10
+    spiked = spiked_prices.assign(_date=pd.to_datetime(spiked_prices["date"]).dt.date)
+    after_price_spike = compute_factor_signals(
+        spiked,
+        membership,
+        None,
+        env["factor"],
+        dates,
+        hypothesis_ids=("H3",),
+    )
+    pd.testing.assert_frame_equal(original, after_price_spike)
+
+    returns = build_period_returns(
+        original,
+        prices,
+        membership,
+        env["study"],
+        env["costs"],
+        env["factor"].cost_stress_multiplier,
+        env["factor"].horizons_months,
+        env["factor"].construction.signal_to_order_lag_sessions,
+    )
+    assert not returns.empty
+    assert all(returns["entry_date"] > returns["signal_date"])
+
+
+def test_h3_only_cli_writes_partial_report_without_approvals(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The H3-only CLI writes a scoped, candidate-suppressed report and no approvals."""
+    env = _environment(tmp_path, monkeypatch)
+    fundamentals_path = env["data"].fundamentals_path
+    assert fundamentals_path is not None
+    fundamentals_path.unlink()
+    approval_path = env["config_dir"] / "approved_setups.yaml"
+    sentinel = "approved_setups:\n  - setup: must_survive\n"
+    approval_path.write_text(sentinel, encoding="utf-8")
+
+    result = RUNNER.invoke(
+        app,
+        [
+            "factor",
+            "run",
+            "--directory",
+            str(env["config_dir"]),
+            "--prereg",
+            str(env["prereg"]),
+            "--hypothesis",
+            "H3",
+        ],
+    )
+    report_path = tmp_path / "factor_report_h3.html"
+
+    assert result.exit_code == 0, result.output
+    assert report_path.is_file()
+    document = report_path.read_text(encoding="utf-8")
+    assert DISCLAIMER in document
+    assert "SURVIVOR_BIASED" in document
+    assert "NOT APPROVAL EVIDENCE" in document
+    assert "PARTIAL STUDY" in document
+    assert "Study scope: H3 only" in document
+    assert env["factor"].prereg_sha256 in document
+    assert '"complete_frozen_design": false' in result.output
+    assert '"holdout_accessed": false' in result.output
+    assert approval_path.read_text(encoding="utf-8") == sentinel

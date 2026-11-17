@@ -11,6 +11,7 @@ if TYPE_CHECKING:
 
 DISCLAIMER = "Research output, not advice; no guarantee of profit."
 CANDIDATE_BANNER = "FACTOR RESULTS ARE CANDIDATES ONLY; NOT APPROVAL EVIDENCE"
+PARTIAL_STUDY_BANNER = "PARTIAL STUDY: FROZEN H1-H4 DESIGN INCOMPLETE; CANDIDATES SUPPRESSED"
 
 
 def _cell(value: Any) -> str:
@@ -43,6 +44,13 @@ def write_factor_report(
     """Write the candidate-only factor report with all required banners."""
     results = output.results
     candidate_count = sum(1 for result in results if result.candidate)
+    scope_label = html.escape(",".join(output.hypotheses))
+    scope_html = (
+        f"<p><strong>{html.escape(PARTIAL_STUDY_BANNER)}</strong></p>"
+        f"<p>Study scope: {scope_label} only. This is not the frozen four-hypothesis study.</p>"
+        if not output.complete_design
+        else f"<p>Study scope: full frozen design ({scope_label}).</p>"
+    )
     result_rows = [
         (
             result.split,
@@ -75,7 +83,8 @@ def write_factor_report(
         "<!doctype html><html lang='en'><head><meta charset='utf-8'>"
         "<title>Frozen factor study</title></head><body>"
         "<h1>Frozen cross-sectional factor study</h1>"
-        f"<p><strong>{html.escape(CANDIDATE_BANNER)}</strong></p>"
+        + scope_html
+        + f"<p><strong>{html.escape(CANDIDATE_BANNER)}</strong></p>"
         f"<p><strong>Data-bias status: {html.escape(data_bias_status)}</strong></p>"
         f"<p>Frozen hash: {html.escape(frozen_hash)}; verified: {frozen_ok}</p>"
         f"<p>Holdout accessed: {holdout_accessed}; trials appended: {output.trials_appended}; "

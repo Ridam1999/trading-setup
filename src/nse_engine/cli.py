@@ -62,13 +62,14 @@ from nse_engine.factor.config import (
     AcquisitionConfig,
     FactorDataConfig,
     FundamentalExtractionConfig,
+    HypothesisId,
     load_factor_config,
     load_factor_data_config,
 )
 from nse_engine.factor.fundamentals import parse_filings
 from nse_engine.factor.readiness import DISCLAIMER as FACTOR_DISCLAIMER
 from nse_engine.factor.readiness import assess_readiness
-from nse_engine.factor.report import write_factor_report
+from nse_engine.factor.report import PARTIAL_STUDY_BANNER, write_factor_report
 from nse_engine.factor.study import DISCLAIMER as FACTOR_STUDY_DISCLAIMER
 from nse_engine.factor.study import run_factor_study
 from nse_engine.logging_config import configure_logging
@@ -149,14 +150,23 @@ def factor_check(
     prereg: Annotated[
         Path, typer.Option("--prereg", help="Frozen pre-registration document.")
     ] = Path("docs/FACTOR_STUDY_PREREG.md"),
+    hypothesis: Annotated[
+        HypothesisId | None,
+        typer.Option("--hypothesis", help="Check one frozen hypothesis only (partial study)."),
+    ] = None,
 ) -> None:
     """Report whether PIT inputs and safety conditions permit a factor study."""
     config = load_factor_config(directory)
     data = load_factor_data_config(directory)
-    report = assess_readiness(config, data, prereg)
+    selected_ids = [hypothesis] if hypothesis is not None else None
+    report = assess_readiness(config, data, prereg, hypothesis_ids=selected_ids)
+    scope = hypothesis if hypothesis is not None else "H1,H2,H3,H4"
+    typer.echo(f"STUDY SCOPE: {scope}" + (" (PARTIAL)" if hypothesis is not None else " (FULL)"))
     for check in report.checks:
         state = "OK" if check.ok else "BLOCK"
         typer.echo(f"[{state}] {check.name}: {check.detail}")
+    if hypothesis is not None:
+        typer.echo(PARTIAL_STUDY_BANNER)
     typer.echo(FACTOR_DISCLAIMER)
     if report.ready:
         typer.echo("FACTOR STUDY READY: design frozen and PIT inputs present.")
@@ -180,6 +190,10 @@ def factor_run(
             help="Explicitly record and read the locked holdout period.",
         ),
     ] = False,
+    hypothesis: Annotated[
+        HypothesisId | None,
+        typer.Option("--hypothesis", help="Run one frozen hypothesis only (partial study)."),
+    ] = None,
 ) -> None:
     """Run the frozen study; every result is a candidate, never an approval."""
     factor = load_factor_config(directory)
@@ -188,7 +202,8 @@ def factor_run(
     gate_settings = load_gate_settings(directory)
     costs = load_costs_config(directory)
     registry = TrialRegistry(settings.trial_registry_path)
-    readiness = assess_readiness(factor, data, prereg, registry)
+    selected_ids = [hypothesis] if hypothesis is not None else None
+    readiness = assess_readiness(factor, data, prereg, registry, hypothesis_ids=selected_ids)
     if not readiness.ready:
         for check in readiness.checks:
             if not check.ok:
@@ -196,6 +211,8 @@ def factor_run(
         typer.echo(f"FACTOR STUDY BLOCKED: {', '.join(readiness.blockers)}", err=True)
         typer.echo(FACTOR_DISCLAIMER)
         raise typer.Exit(code=1)
+    if hypothesis is not None:
+        typer.echo(PARTIAL_STUDY_BANNER, err=True)
     if unlock_holdout:
         typer.echo("HOLDOUT ACCESS REQUESTED; an audit row will be appended.", err=True)
 
@@ -209,10 +226,16 @@ def factor_run(
         prereg,
         config_directory=directory,
         include_holdout=unlock_holdout,
+        hypothesis_ids=selected_ids,
     )
-    report_path = write_factor_report(
+    report_path = data.report_path
+    if hypothesis is not None:
+        report_path = report_path.with_name(
+            f"{report_path.stem}_{hypothesis.lower()}{report_path.suffix}"
+        )
+    written_report = write_factor_report(
         output,
-        data.report_path,
+        report_path,
         load_data_bias_status(load_config(directory)),
         factor.prereg_sha256,
         frozen_ok=True,
@@ -221,6 +244,8 @@ def factor_run(
     typer.echo(
         json.dumps(
             {
+                "hypotheses": list(output.hypotheses),
+                "complete_frozen_design": output.complete_design,
                 "results": len(output.results),
                 "trials_appended": output.trials_appended,
                 "candidates": [
@@ -228,7 +253,7 @@ def factor_run(
                     for row in output.results
                     if row.candidate
                 ],
-                "report_path": str(report_path),
+                "report_path": str(written_report),
                 "holdout_accessed": unlock_holdout,
             },
             indent=2,

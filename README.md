@@ -168,26 +168,35 @@ uv run --no-sync nse-engine factor acquire fundamentals
 
 Run them in that order. `prices` writes immutable dated bhavcopies under `data/pit/bhavcopy`; `membership` derives top-N snapshots using only data available at each rebalance date; `announcements` downloads public announcement metadata into `data/pit/announcement_index.parquet` and raw JSON chunks; `filings` downloads linked PDFs without overwriting existing copies; `fundamentals` appends parsed, announcement-dated EPS, net-profit, and equity rows to `data/pit/fundamentals_announcements.parquet`. `filings` and `fundamentals` apply the headline patterns and URL suffixes in `config/factor_data.yaml`, so unrelated NSE announcements are not downloaded or parsed. NIFTYBEES remains in the price store as the benchmark reference but is excluded from equity membership by `config/factor_data.yaml`. All commands print the research disclaimer.
 
-A bounded live smoke test downloaded the public 2026-11-13 UDiFF bhavcopy and parsed 2,744 EQ rows including NIFTYBEES. It exposed a current-header volume alias (`TTL_TRD_QNTY`), which is now mapped and covered by a fixture. The downloaded file stays under local `data/pit` and is gitignored; full historical acquisition has not been run.
+A bounded live smoke test downloaded the public 2026-11-13 UDiFF bhavcopy and parsed 2,744 EQ rows including NIFTYBEES. It exposed a current-header volume alias (`TTL_TRD_QNTY`), which is now mapped and covered by a fixture. The downloaded file was quarantined outside the active store. A separate bounded acquisition covered public prices, membership, and announcements only through `2022-12-31`; acquired files stay under local `data/pit` and are gitignored.
 
 The parser is best-effort: label patterns and crore scaling live in YAML, missing or unparseable PDFs are reported, and prior rows are never overwritten. Malformed PDFs are counted as unparsed instead of aborting the batch. A restatement appends a later-announcement row, and `select_fundamentals_as_of` shows that later values cannot leak into earlier cutoffs. Manual review is still required before these values are trusted. A bounded 2005–2022 public acquisition and a 200-filing diagnostic sample are summarized in [docs/FACTOR_DATA_REVIEW.md](docs/FACTOR_DATA_REVIEW.md); extraction coverage was insufficient, so the real factor run remains blocked pending a manual data-source decision.
 
 ### Frozen factor-study execution
 
-The execution layer is available but remains blocked until trusted fundamentals exist (historical prices and PIT membership are present; the diagnostic fundamentals sample is not approved input):
+The full four-hypothesis run remains blocked until trusted fundamentals exist (historical prices and PIT membership are present; the diagnostic fundamentals sample is not approved input). The price-only H3 hypothesis can be read out separately without touching that untrusted input:
 
 ```bash
+# full frozen study; currently blocked on fundamentals_path:
 make factor-run
 # equivalent: uv run --no-sync nse-engine factor run
-# explicit, audited holdout access:
+
+# explicit partial H3-only readout:
+make factor-run-h3
+# equivalent: uv run --no-sync nse-engine factor run --hypothesis H3
+# readiness-only form: uv run --no-sync nse-engine factor check --hypothesis H3
+
+# explicit, audited holdout access (full study or --hypothesis H3):
 uv run --no-sync nse-engine factor run --unlock-holdout
 ```
 
 `factor run` first rechecks the frozen hash, PIT inputs, causal lags, locked holdout state, and cost-stress floor. It then evaluates H1–H4 at the four frozen 1/3/6/12-month horizons on train and validation only unless `--unlock-holdout` is passed. Signals use announcement-dated fundamentals after the configured lag, point-in-time closes, winsorized z-scores, the top-quintile basket, the configured turnover cap, and the shared next-session limit-fill model with configured costs. Rebalance dates whose full horizon would cross a split boundary are dropped, so a default run cannot read holdout prices. Benjamini–Hochberg correction is applied separately within each split across the 4 × 4 hypothesis/horizon combinations.
 
-Every hypothesis/horizon/split result is appended to the append-only trial registry. A pass is recorded only as a candidate requiring point-in-time verification; the command never writes `config/approved_setups.yaml`, never changes `data_bias_status`, and never places an order. It writes `reports/factor_study.html` (configurable in `config/factor_data.yaml`) with the bias banner, frozen hash, gate table, calendar-year results, benchmark comparisons, and the required research disclaimer.
+`--hypothesis H3` is an explicit **partial readout**, not the frozen four-hypothesis study. It uses only point-in-time prices and membership, so readiness no longer requires the failed fundamentals file. The same causal windows, basket rules, fill model, costs, and locked splits apply. Benjamini–Hochberg correction is applied within each split over the selected hypothesis/horizon combinations only. Registry rows carry `hypothesis_scope=H3` and `complete_frozen_design=false`; gate passes are reported but `candidate` is forced false so an incomplete run can never become approval evidence. The report is written to `reports/factor_study_h3.html` and displays a partial-study banner. `config/factor.yaml` and the frozen pre-registration are unchanged.
 
-`make check` includes mocked HTTP tests, synthetic dated bhavcopies, a causality test showing that a later liquidity spike cannot change an earlier membership snapshot, and restatement/idempotency tests for fundamentals parsing. It also includes guard tests for owner-decision placeholders, positive signal/announcement lags, blocked/ready readiness paths, six synthetic factor-study tests (default train/validation-only execution, causality under later price spikes and restatements, audited holdout access, blocked CLI execution, candidate-only reports, and rejection of a lowered cost-stress floor), and approval-file safety. No network acquisition, real factor run, vendor contact, approval, or holdout access occurred during verification. Changing any frozen slot after data access invalidates the study and requires a new pre-registration.
+Every executed hypothesis/horizon/split result is appended to the append-only trial registry. A pass is recorded only as a candidate requiring point-in-time verification; the command never writes `config/approved_setups.yaml`, never changes `data_bias_status`, and never places an order. The full study writes `reports/factor_study.html` (configurable in `config/factor_data.yaml`) with the bias banner, frozen hash, gate table, calendar-year results, benchmark comparisons, and the required research disclaimer.
+
+`make check` includes mocked HTTP tests, synthetic dated bhavcopies, a causality test showing that a later liquidity spike cannot change an earlier membership snapshot, and restatement/idempotency tests for fundamentals parsing. It also includes guard tests for owner-decision placeholders, positive signal/announcement lags, blocked/ready readiness paths (including H3-only readiness without fundamentals), ten synthetic factor-study tests (default train/validation-only execution, causality under later price spikes and restatements, audited holdout access, blocked full CLI execution, candidate-only reports, rejection of a lowered cost-stress floor, H3-only execution and CLI reporting, and the full-run fundamental blocker), and approval-file safety. No network acquisition, real factor run, vendor contact, approval, or holdout access occurs during verification. Changing any frozen slot after data access invalidates the study and requires a new pre-registration.
 
 ## Project phases
 

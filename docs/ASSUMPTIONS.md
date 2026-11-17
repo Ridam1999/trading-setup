@@ -120,6 +120,16 @@
 - A deterministic 200-row diagnostic sample produced only 13 rows across two of the three frozen fields and no average-shareholders-equity values. Several extracted numbers are implausible, so the extracted fundamentals remain untrusted. This is a manual source/extraction review blocker, not a reason to fabricate a factor result, download all filings blindly, change the frozen design, or unlock the holdout.
 - A malformed sample PDF caused `pypdf` to raise during batch parsing. The parser now catches that read error and counts the filing as unparsed; the malformed-file behavior is covered by a unit test.
 
+# Partial H3-only factor readout
+
+- "Go next what's right" is interpreted as authorization to execute only the pre-registered price-only H3 momentum hypothesis, not to relax the fundamental blocker, change the frozen design, or unlock the holdout.
+- `config/factor.yaml` and `docs/FACTOR_STUDY_PREREG.md` remain byte-identical. `--hypothesis H3` is an execution scope argument; it does not edit or override any frozen threshold.
+- H3 readiness requires point-in-time prices and membership but skips the untrusted `fundamentals_path`. The default four-hypothesis run still blocks on that path.
+- Signal construction, winsorized ranking, basket turnover, next-session limit fills, configured costs, split boundaries, and separate BH correction per split are unchanged. For the partial run, BH is computed over the selected H3/horizon tests only, so the adjusted p-values are exploratory and are not the frozen 16-test family.
+- Every partial run appends registry rows with `hypothesis_scope` and `complete_frozen_design=false`. Gate passes are displayed, but `candidate` is forced false; a partial result can never be approval evidence.
+- The partial report is written beside the configured report as `factor_study_h3.html`, includes a `PARTIAL STUDY` banner, keeps the survivorship-bias banner and disclaimer, and never writes an approval file.
+- The holdout remains locked. H3-only results use only the configured train and validation windows unless an explicit audited `--unlock-holdout` flag is supplied.
+
 # Remaining phases (5 and 6)
 
 - "Complete the pending phases first" is interpreted as Phase 5 (UI and reports) and Phase 6 (broker interface, live disabled), the two phases marked Not started in `docs/STATUS.md`. Phase 3's real-data portfolio run remains blocked because `config/approved_setups.yaml` is empty and holdout is locked; it is a research outcome, not an implementation gap, and is not fabricated.

@@ -81,3 +81,24 @@ def test_factor_check_cli_blocks_without_pit_inputs() -> None:
     assert result.exit_code == 1
     assert "FACTOR STUDY BLOCKED" in result.output
     assert DISCLAIMER in result.output
+
+
+def test_h3_only_readiness_skips_fundamentals_but_full_still_blocks(tmp_path: Path) -> None:
+    """Only the price-only hypothesis can pass readiness without fundamentals."""
+    config = load_factor_config(CONFIG_DIR)
+    prices = tmp_path / "prices"
+    prices.mkdir()
+    membership = tmp_path / "membership.csv"
+    membership.write_text("rebalance_date,symbol\n", encoding="utf-8")
+    prereg = tmp_path / "prereg.md"
+    prereg.write_bytes(PREREG_PATH.read_bytes())
+    data = FactorDataConfig(pit_prices_dir=prices, membership_path=membership)
+    registry = TrialRegistry(tmp_path / "trials.sqlite")
+
+    full = assess_readiness(config, data, prereg, registry)
+    h3_only = assess_readiness(config, data, prereg, registry, hypothesis_ids=("H3",))
+
+    assert full.ready is False
+    assert "fundamentals_path" in full.blockers
+    assert h3_only.ready is True
+    assert h3_only.blockers == ()

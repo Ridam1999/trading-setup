@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -12,13 +13,16 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from nse_engine.config import config_directory
 
+HypothesisId = Literal["H1", "H2", "H3", "H4"]
+FULL_HYPOTHESES: tuple[HypothesisId, ...] = ("H1", "H2", "H3", "H4")
+
 
 class Hypothesis(BaseModel):
     """One pre-registered cross-sectional hypothesis."""
 
     model_config = ConfigDict(extra="forbid")
 
-    id: Literal["H1", "H2", "H3", "H4"]
+    id: HypothesisId
     name: str
     definition: str
     expected_sign: Literal["positive", "negative"]
@@ -111,6 +115,29 @@ class FactorConfig(BaseModel):
         if len(set(identifiers)) != len(identifiers):
             raise ValueError("Hypothesis IDs must be unique")
         return self
+
+
+def resolve_hypotheses(
+    factor: FactorConfig, hypothesis_ids: Sequence[HypothesisId] | None = None
+) -> tuple[Hypothesis, ...]:
+    """Return the requested frozen hypotheses in pre-registered order."""
+    if hypothesis_ids is None:
+        return tuple(factor.hypotheses)
+    requested = tuple(hypothesis_ids)
+    if not requested:
+        raise ValueError("At least one hypothesis must be selected")
+    if len(set(requested)) != len(requested):
+        raise ValueError("Hypothesis selection must not contain duplicates")
+    by_id = {item.id: item for item in factor.hypotheses}
+    unknown = sorted(set(requested).difference(by_id))
+    if unknown:
+        raise ValueError(f"Unknown hypothesis IDs: {', '.join(unknown)}")
+    return tuple(by_id[identifier] for identifier in FULL_HYPOTHESES if identifier in requested)
+
+
+def requires_fundamentals(hypothesis_ids: Sequence[HypothesisId]) -> bool:
+    """Return whether the selected hypotheses need announcement-dated inputs."""
+    return any(identifier != "H3" for identifier in hypothesis_ids)
 
 
 FUNDAMENTAL_DILUTED_EPS = "trailing_12m_diluted_eps"
