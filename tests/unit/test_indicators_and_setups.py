@@ -38,6 +38,7 @@ def _synthetic_frame(length: int = 400) -> pd.DataFrame:
     """Build a deterministic OHLCV series with enough history for long windows."""
     step = np.arange(length, dtype=float)
     close = 100 + step * 0.2 + np.sin(step / 5)
+    benchmark = 100 + step * 0.12 + np.cos(step / 9)
     return pd.DataFrame(
         {
             "symbol": "TEST",
@@ -47,7 +48,9 @@ def _synthetic_frame(length: int = 400) -> pd.DataFrame:
             "low": close - 1.0,
             "close": close,
             "volume": 100000 + step,
-            "benchmark": 100 + step * 0.12 + np.cos(step / 9),
+            "benchmark": benchmark,
+            "delivery_pct": 20.0 + np.sin(step / 7),
+            "_benchmark_close": benchmark,
         }
     )
 
@@ -69,7 +72,7 @@ def test_every_indicator_is_invariant_to_future_data() -> None:
     original = _synthetic_frame()
     altered = original.copy()
     stop = 320
-    altered.loc[stop:, ["open", "high", "low", "close", "benchmark"]] *= 2.5
+    altered.loc[stop:, ["open", "high", "low", "close", "benchmark", "_benchmark_close"]] *= 2.5
     for name, output in _indicator_outputs(original).items():
         _assert_prefix_equal(output, _indicator_outputs(altered)[name], stop)
 
@@ -79,7 +82,7 @@ def test_every_registered_setup_is_invariant_to_future_bars() -> None:
     original = _synthetic_frame()
     altered = original.copy()
     stop = 320
-    altered.loc[stop:, ["open", "high", "low", "close"]] *= 2.5
+    altered.loc[stop:, ["open", "high", "low", "close", "delivery_pct", "_benchmark_close"]] *= 2.5
     for name, setup_type in SETUP_REGISTRY.items():
         config = load_setup_config(name, Path("config/setups"))
         original_signals = setup_type(config).signals(original)

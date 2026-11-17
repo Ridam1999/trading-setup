@@ -327,7 +327,8 @@ def build_event_study(
     """Create signal events, eligible-universe baselines, and stress returns."""
     if frame.empty:
         raise ValueError("No OHLCV data is available for the event study")
-    required = set(setup.required_features()) | {
+    # Engine-provided helper columns (prefixed with "_") are attached below.
+    required = {name for name in setup.required_features() if not name.startswith("_")} | {
         "symbol",
         "date",
         "open",
@@ -370,11 +371,15 @@ def build_event_study(
         regimes = labels
         regimes.index.name = "date"
 
+    benchmark_close = benchmark.drop_duplicates("date", keep="last").set_index("date")["close"]
+
     signal_keys: set[tuple[str, date]] = set()
     signal_positions_by_symbol: dict[str, np.ndarray] = {}
     by_symbol = {
         symbol: group.reset_index(drop=True) for symbol, group in all_bars.groupby("symbol")
     }
+    for group in by_symbol.values():
+        group["_benchmark_close"] = group["date"].map(benchmark_close).astype(float)
     eligibilities: dict[str, pd.Series] = {}
     for symbol, group in by_symbol.items():
         eligibility = eligible_rows(group, setup.config) & group["_pit_member"]

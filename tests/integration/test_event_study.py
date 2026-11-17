@@ -188,6 +188,65 @@ def test_event_study_detects_injected_edge_over_noise_baseline() -> None:
     assert events["excess_over_baseline"].mean() > 0.015
 
 
+def test_engine_injects_benchmark_close_by_date() -> None:
+    """Setups can read a date-aligned benchmark column supplied by the event builder."""
+
+    class BenchmarkReader:
+        """Test-only setup that reads the engine-provided benchmark column."""
+
+        name = "benchmark_reader"
+
+        def __init__(self, config: SetupConfig) -> None:
+            """Store the test configuration."""
+            self.config = config
+
+        def required_features(self) -> list[str]:
+            """Require the injected benchmark column."""
+            return ["close", "_benchmark_close"]
+
+        def signals(self, frame: pd.DataFrame) -> pd.Series:
+            """Signal once the benchmark closes above the fixture threshold."""
+            return frame["_benchmark_close"].gt(150)
+
+    dates = pd.date_range("2024-01-01", periods=60, freq="B").date
+    rows: list[dict[str, object]] = []
+    for symbol in ("AAA", "BENCH"):
+        for position, day in enumerate(dates):
+            close = 100 + position if symbol == "AAA" else 100 + 2 * position
+            rows.append(
+                {
+                    "symbol": symbol,
+                    "date": day,
+                    "open": close,
+                    "high": close + 1,
+                    "low": close - 1,
+                    "close": close,
+                    "volume": 1000,
+                }
+            )
+    config = SetupConfig(
+        name="benchmark_reader",
+        universe="synthetic",
+        rationale="Fixture for benchmark column injection.",
+        params={"traded_value_window": 1},
+        filters={"minimum_price": 1, "minimum_average_traded_value": 0},
+        exit_rules={},
+    )
+    settings = _study_settings([1]).model_copy(update={"benchmark_symbol": "BENCH"})
+
+    events = build_event_study(
+        pd.DataFrame(rows),
+        BenchmarkReader(config),
+        settings,
+        _costs(),
+        date(2024, 1, 1),
+        date(2024, 3, 31),
+    )
+
+    assert not events.empty
+    assert events["signal_date"].min() == dates[26]
+
+
 def test_point_in_time_membership_filters_candidate_rows() -> None:
     """The point-in-time mask stays aligned after reducing a symbol history."""
     frame = _synthetic_market()
