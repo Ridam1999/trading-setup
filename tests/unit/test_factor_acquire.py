@@ -20,6 +20,8 @@ from nse_engine.factor.acquire import (
     download_announcements,
     download_bhavcopies,
     download_filing_pdfs,
+    extract_announcement_rows,
+    should_download_filing,
 )
 from nse_engine.factor.config import AcquisitionConfig, load_factor_config
 
@@ -45,6 +47,8 @@ def _settings(tmp_path: Path, start: date, end: date, udiff_start: date) -> Acqu
         retry_attempts=1,
         exclude_symbol_pattern="(?:ETF|INDEX)$",
         exclude_symbols=["NIFTYBEES"],
+        filing_headline_patterns=["Financial\\s+Results?"],
+        filing_url_suffixes=[".pdf"],
     )
 
 
@@ -203,14 +207,51 @@ def test_download_announcements_writes_chunked_metadata(tmp_path: Path) -> None:
         summary = download_announcements(settings, output, client)
 
     assert summary.chunks == 2
-    assert summary.rows == 2
+    assert summary.rows == 1
     assert sorted(path.name for path in settings.announcement_raw_dir.glob("*.json")) == [
         "2024-01-01_2024-01-02.json",
         "2024-01-03_2024-01-04.json",
     ]
     frame = pd.read_parquet(output)
-    assert list(frame["symbol"]) == ["AAA", "AAA"]
+    assert list(frame["symbol"]) == ["AAA"]
     assert set(frame["announcement_date"].astype(str)) == {"2024-01-02"}
+
+
+def test_extract_announcement_rows_accepts_live_nse_list_payload() -> None:
+    """The current public API returns a list with NSE-specific field names."""
+    payload = [
+        {
+            "symbol": "AAA",
+            "an_dt": "31-Dec-2022 16:48:05",
+            "desc": "Outcome of Board Meeting",
+            "attchmntFile": "https://pdf.test/filing.pdf",
+        }
+    ]
+
+    rows = extract_announcement_rows(payload, "https://api.test/chunk")
+
+    assert len(rows) == 1
+    assert rows[0]["symbol"] == "AAA"
+    assert rows[0]["announcement_date"] == date(2022, 12, 31)
+    assert rows[0]["headline"] == "Outcome of Board Meeting"
+    assert rows[0]["pdf_url"] == "https://pdf.test/filing.pdf"
+
+
+def test_filing_filter_uses_configured_headline_and_suffix(tmp_path: Path) -> None:
+    """Only configured financial-result PDFs are fetched and parsed."""
+    settings = _settings(tmp_path, date(2024, 1, 1), date(2024, 1, 4), date(2024, 1, 1))
+    matching = {
+        "symbol": "AAA",
+        "announcement_date": date(2024, 1, 2),
+        "headline": "Financial Results",
+        "pdf_url": "https://pdf.test/results.pdf",
+    }
+    wrong_headline = {**matching, "headline": "Trading Window"}
+    wrong_suffix = {**matching, "pdf_url": "https://pdf.test/results.zip"}
+
+    assert should_download_filing(matching, settings)
+    assert not should_download_filing(wrong_headline, settings)
+    assert not should_download_filing(wrong_suffix, settings)
 
 
 def test_download_filing_pdfs_uses_deterministic_paths(tmp_path: Path) -> None:
@@ -223,7 +264,7 @@ def test_download_filing_pdfs_uses_deterministic_paths(tmp_path: Path) -> None:
             {
                 "symbol": "AAA",
                 "announcement_date": date(2024, 1, 2),
-                "headline": "Results",
+                "headline": "Financial Results",
                 "pdf_url": url,
                 "source_url": "https://api.test",
                 "ingested_at": "2024-01-02T00:00:00+00:00",

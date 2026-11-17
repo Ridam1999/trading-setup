@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import time
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 import pandas as pd  # type: ignore[import-untyped]
@@ -75,6 +77,48 @@ def filing_path(settings: AcquisitionConfig, symbol: str, announced: date, url: 
     label = pd.to_datetime(announced).strftime("%Y-%m-%d")
     digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
     return settings.filing_dir / symbol / f"{label}_{digest}.pdf"
+
+
+def _record_value(record: Any, keys: tuple[str, ...]) -> Any:
+    """Return the first non-empty value from a mapping-like announcement row."""
+    for key in keys:
+        try:
+            value = record.get(key) if isinstance(record, dict) else record[key]
+        except (KeyError, TypeError):
+            continue
+        if value is None:
+            continue
+        if isinstance(value, str) and value.strip() in {"", "-"}:
+            continue
+        return value
+    return None
+
+
+def _headline(record: Any) -> str:
+    """Return the configured headline fields for one announcement row."""
+    value = _record_value(record, ("headline", "subject", "desc", "attchmntText"))
+    return str(value).strip() if value is not None else ""
+
+
+def _pdf_url(record: Any) -> str:
+    """Return the attachment URL for one announcement row."""
+    value = _record_value(record, ("pdf_url", "pdfUrl", "attachmentUrl", "fileUrl", "attchmntFile"))
+    return str(value).strip() if value is not None else ""
+
+
+def should_download_filing(row: Any, settings: AcquisitionConfig) -> bool:
+    """Return whether one announcement is a configured, downloadable filing."""
+    headline = _headline(row)
+    if not any(
+        re.search(pattern, headline, flags=re.IGNORECASE)
+        for pattern in settings.filing_headline_patterns
+    ):
+        return False
+    url = _pdf_url(row)
+    if not url:
+        return False
+    path = urlparse(url).path.lower()
+    return any(path.endswith(suffix) for suffix in settings.filing_url_suffixes)
 
 
 def _session(settings: AcquisitionConfig) -> httpx.Client:
@@ -210,19 +254,24 @@ def build_membership(
 
 
 def extract_announcement_rows(payload: Any, source_url: str) -> list[dict[str, Any]]:
-    """Normalize a public announcement API payload into metadata rows."""
-    if not isinstance(payload, dict):
-        return []
-    records = payload.get("data") or payload.get("announcements") or []
+    """Normalize public NSE announcement payloads into metadata rows."""
+    if isinstance(payload, dict):
+        records = payload.get("data") or payload.get("announcements") or []
+    elif isinstance(payload, list):
+        records = payload
+    else:
+        records = []
     if not isinstance(records, list):
         return []
     rows: list[dict[str, Any]] = []
     for record in records:
         if not isinstance(record, dict):
             continue
-        symbol = record.get("symbol") or record.get("symbolName")
-        announced = record.get("announcementDate") or record.get("date") or record.get("neapsDate")
-        if not symbol or not announced:
+        symbol = _record_value(record, ("symbol", "symbolName"))
+        announced = _record_value(
+            record, ("announcementDate", "neapsDate", "an_dt", "sort_date", "date", "dt")
+        )
+        if symbol is None or announced is None:
             continue
         parsed = pd.to_datetime(announced, errors="coerce")
         if pd.isna(parsed):
@@ -231,10 +280,8 @@ def extract_announcement_rows(payload: Any, source_url: str) -> list[dict[str, A
             {
                 "symbol": str(symbol).strip().upper(),
                 "announcement_date": parsed.date(),
-                "headline": record.get("subject") or record.get("headline") or record.get("desc"),
-                "pdf_url": record.get("pdfUrl")
-                or record.get("attachmentUrl")
-                or record.get("fileUrl"),
+                "headline": _headline(record),
+                "pdf_url": _pdf_url(record),
                 "source_url": source_url,
                 "ingested_at": datetime.now(UTC).isoformat(),
             }
@@ -251,6 +298,7 @@ def download_announcements(
     owned_client = client is None
     session = client or _session(settings)
     all_rows: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, str, str]] = set()
     chunk_count = 0
     try:
         start = settings.start_date
@@ -267,7 +315,20 @@ def download_announcements(
                 (
                     settings.announcement_raw_dir / f"{start.isoformat()}_{end.isoformat()}.json"
                 ).write_bytes(content)
-                all_rows.extend(extract_announcement_rows(json.loads(content), url))
+                for row in extract_announcement_rows(json.loads(content), url):
+                    announced = row["announcement_date"]
+                    if not settings.start_date <= announced <= settings.end_date:
+                        continue
+                    key = (
+                        str(row["symbol"]),
+                        announced.isoformat(),
+                        str(row["headline"]),
+                        str(row["pdf_url"]),
+                    )
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    all_rows.append(row)
             chunk_count += 1
             start = end + timedelta(days=1)
             time.sleep(settings.request_delay_seconds)
@@ -305,13 +366,18 @@ def download_filing_pdfs(
     session = client or _session(settings)
     saved = 0
     try:
-        for row in announcements.itertuples(index=False):
-            url = getattr(row, "pdf_url", None)
-            if not isinstance(url, str) or not url:
+        for row in announcements.to_dict("records"):
+            if not should_download_filing(row, settings):
                 continue
-            symbol = str(getattr(row, "symbol", "UNKNOWN"))
-            announced = pd.to_datetime(row.announcement_date).date()
-            path = filing_path(settings, symbol, announced, url)
+            announced = pd.to_datetime(row.get("announcement_date"), errors="coerce")
+            if pd.isna(announced):
+                continue
+            day = announced.date()
+            if not settings.start_date <= day <= settings.end_date:
+                continue
+            url = _pdf_url(row)
+            symbol = str(_record_value(row, ("symbol",)) or "UNKNOWN").strip().upper()
+            path = filing_path(settings, symbol, day, url)
             if path.is_file() and path.stat().st_size > 0:
                 continue
             content = _fetch(session, url, settings)

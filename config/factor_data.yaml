@@ -26,6 +26,13 @@ acquisition:
   # Applied to universe membership only; NIFTYBEES remains in prices as benchmark.
   exclude_symbol_pattern: "(?:ETF|INDEX)$"
   exclude_symbols: [NIFTYBEES]
+  # Only dated financial-result filings are downloaded and parsed. Other NSE
+  # announcement PDFs are metadata noise for the frozen fundamental fields.
+  filing_headline_patterns:
+    - 'Outcome\s+of\s+Board\s+Meeting'
+    - 'Financial\s+Results?'
+    - '(?:Unaudited|Audited)\s+(?:Financial\s+)?Results?'
+  filing_url_suffixes: ['.pdf']
 
 # Best-effort text extraction from downloaded filings. Values are append-only
 # and announcement-dated; unparsed PDFs are reported, never silently skipped.

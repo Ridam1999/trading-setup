@@ -99,6 +99,8 @@
 - The smoke test uses a temporary config with a one-session date window. It contacts only the already configured public NSE endpoints, uses no credentials or vendor spend, and writes only under the configured local `data/pit` paths.
 - A failed endpoint is recorded as an infrastructure blocker. EOD2 or any other survivor-biased source is not substituted, and no factor result is fabricated to bypass the blocker.
 - The live 2026 UDiFF header uses `TTL_TRD_QNTY` for volume and `DELIV_PER` for delivery percentage. The parser now maps that quantity alias; the downloaded file is kept locally and excluded from Git because acquired PIT data is not a source artifact.
+- A live announcement-endpoint probe returned a top-level JSON list using NSE field names (`an_dt`, `desc`, `attchmntFile`), not the wrapper object used by the original fixture. The extractor now accepts both shapes and maps the live date, headline, and attachment fields; announcement rows outside the configured acquisition window are discarded and duplicate rows across chunks are collapsed.
+- Filing downloads and parsing are limited to config-driven headline patterns and URL suffixes in `config/factor_data.yaml`. Most NSE announcement PDFs are not financial results, so unbounded attachment downloads would add noise and time without improving the three frozen fundamental fields.
 
 # Factor study execution
 

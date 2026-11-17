@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 from typing import Literal
@@ -177,6 +178,8 @@ class AcquisitionConfig(BaseModel):
     retry_attempts: int = Field(ge=1)
     exclude_symbol_pattern: str | None = None
     exclude_symbols: list[str] = Field(default_factory=list)
+    filing_headline_patterns: list[str] = Field(min_length=1)
+    filing_url_suffixes: list[str] = Field(min_length=1)
 
     @field_validator("weekdays")
     @classmethod
@@ -191,6 +194,29 @@ class AcquisitionConfig(BaseModel):
     def normalize_excluded_symbols(cls, values: list[str]) -> list[str]:
         """Normalize explicit universe exclusions such as the benchmark ETF."""
         return sorted({value.strip().upper() for value in values if value.strip()})
+
+    @field_validator("filing_headline_patterns")
+    @classmethod
+    def valid_filing_headline_patterns(cls, values: list[str]) -> list[str]:
+        """Reject blank or invalid filing headline expressions."""
+        for value in values:
+            if not value.strip():
+                raise ValueError("Filing headline patterns must be non-empty")
+            re.compile(value, re.IGNORECASE)
+        return values
+
+    @field_validator("filing_url_suffixes")
+    @classmethod
+    def normalize_filing_url_suffixes(cls, values: list[str]) -> list[str]:
+        """Normalize filing URL extensions to lowercase dotted suffixes."""
+        normalized = {
+            value.strip().lower() if value.strip().startswith(".") else f".{value.strip().lower()}"
+            for value in values
+            if value.strip()
+        }
+        if not normalized:
+            raise ValueError("At least one filing URL suffix is required")
+        return sorted(normalized)
 
     @model_validator(mode="after")
     def check_dates(self) -> AcquisitionConfig:

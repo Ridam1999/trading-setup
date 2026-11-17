@@ -42,6 +42,8 @@ def _settings(tmp_path: Path) -> AcquisitionConfig:
         retry_attempts=1,
         exclude_symbol_pattern="(?:ETF|INDEX)$",
         exclude_symbols=["NIFTYBEES"],
+        filing_headline_patterns=["Financial\\s+Results?"],
+        filing_url_suffixes=[".pdf"],
     )
 
 
@@ -109,7 +111,7 @@ def test_parse_filings_is_idempotent_and_restatement_safe(
             {
                 "symbol": "AAA",
                 "announcement_date": date(2024, 1, 2),
-                "headline": "Q3 results",
+                "headline": "Q3 Financial Results",
                 "pdf_url": "https://pdf.test/q3.pdf",
                 "source_url": "https://api.test/q3",
                 "ingested_at": "2024-01-02T00:00:00+00:00",
@@ -117,7 +119,7 @@ def test_parse_filings_is_idempotent_and_restatement_safe(
             {
                 "symbol": "AAA",
                 "announcement_date": date(2024, 6, 1),
-                "headline": "Restated Q3",
+                "headline": "Restated Financial Results",
                 "pdf_url": "https://pdf.test/restated.pdf",
                 "source_url": "https://api.test/restated",
                 "ingested_at": "2024-06-01T00:00:00+00:00",
@@ -172,7 +174,7 @@ def test_parse_filings_reports_missing_and_unparsed_files(
             {
                 "symbol": "AAA",
                 "announcement_date": date(2024, 1, 2),
-                "headline": "Missing",
+                "headline": "Missing Financial Results",
                 "pdf_url": "https://pdf.test/missing.pdf",
                 "source_url": "https://api.test/missing",
                 "ingested_at": "2024-01-02T00:00:00+00:00",
@@ -180,7 +182,7 @@ def test_parse_filings_reports_missing_and_unparsed_files(
             {
                 "symbol": "BBB",
                 "announcement_date": date(2024, 1, 3),
-                "headline": "No fields",
+                "headline": "Blank Financial Results",
                 "pdf_url": "https://pdf.test/blank.pdf",
                 "source_url": "https://api.test/blank",
                 "ingested_at": "2024-01-03T00:00:00+00:00",

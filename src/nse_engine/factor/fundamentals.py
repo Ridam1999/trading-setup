@@ -16,7 +16,7 @@ from typing import Any
 import pandas as pd  # type: ignore[import-untyped]
 from pypdf import PdfReader
 
-from nse_engine.factor.acquire import filing_path
+from nse_engine.factor.acquire import filing_path, should_download_filing
 from nse_engine.factor.config import AcquisitionConfig, FundamentalExtractionConfig
 
 DISCLAIMER = "Research output, not advice; no guarantee of profit."
@@ -117,12 +117,17 @@ def parse_filings(
     unparsed_files = 0
 
     for row in announcements.to_dict("records"):
-        url = row.get("pdf_url")
-        if not isinstance(url, str) or not url:
+        if not should_download_filing(row, settings):
             continue
+        announced = pd.to_datetime(row.get("announcement_date"), errors="coerce")
+        if pd.isna(announced):
+            continue
+        day = announced.date()
+        if not settings.start_date <= day <= settings.end_date:
+            continue
+        url = str(row.get("pdf_url") or "").strip()
         symbol = str(row["symbol"]).strip().upper()
-        announced = pd.to_datetime(row["announcement_date"]).date()
-        path = filing_path(settings, symbol, announced, url)
+        path = filing_path(settings, symbol, day, url)
         if not path.is_file():
             missing_files += 1
             continue
