@@ -55,5 +55,13 @@
 # Factor-study readiness decision (2026-11-18)
 
 - The next bounded step is a readiness gate, not an execution engine. It verifies the frozen design hash, the presence of PIT inputs, causal lags, delisted-inclusive requirements, and locked holdout state, then refuses to proceed with a non-zero exit when any condition fails.
-- `config/factor_data.yaml` keeps PIT price, announcement, and membership paths null. `make factor` therefore blocks by design; filling those paths is a separate owner data decision and must not be done with survivor-biased EOD2 files.
+- `config/factor_data.yaml` names the PIT price, announcement, and membership paths, but those files do not exist yet. `make factor` therefore blocks by design; filling them is a separate owner data action and must not be done with survivor-biased EOD2 files.
 - The readiness check is read-only: it does not compute factors, append trials, write approvals, unlock holdout, or contact a broker or vendor. The pre-registration hash guards against post-data edits to the frozen design.
+
+# Public PIT acquisition decision (2026-11-18)
+
+- "Let achieve this by script or bot in this solution" is interpreted as authorization to add local acquisition commands, not as authorization to run them, buy data, extract filing fields, or execute a factor study.
+- The bot is limited to public NSE endpoints with no credentials, vendor contact, or live order path. Every URL, date bound, weekday, delay, retry, directory, and exclusion is in `config/factor_data.yaml`; the frozen design and ₹0 budget are unchanged.
+- Dated bhavcopies are immutable. Membership snapshots use only data available on or before each rebalance date, with a regression test proving later liquidity spikes cannot change earlier snapshots.
+- Announcement metadata and PDFs are downloaded but not parsed into EPS/net-profit/equity fields. A future parser must append announcement-dated rows and preserve prior values on restatement before any fundamental factor may be computed.
+- Network acquisition is an explicit owner action. Verification uses mocked HTTP transports and synthetic local files only; no public endpoint was contacted during `make check`.

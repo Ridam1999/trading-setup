@@ -71,10 +71,18 @@
 
 # Factor-study readiness gate
 
-- The following "go next" was interpreted as authorization to add the readiness layer only: validated factor config, a SHA-256 hash of the frozen document, null point-in-time input paths, and a `factor check` CLI that refuses execution until those inputs exist.
-- `config/factor_data.yaml` uses null paths for PIT prices, announcement-dated fundamentals, and membership. They are intentionally unfilled because no such data is in the repo and the ₹0 budget forbids vendor contact.
+- The following "go next" was interpreted as authorization to add the readiness layer only: validated factor config, a SHA-256 hash of the frozen document, point-in-time input paths, and a `factor check` CLI that refuses execution until those inputs exist.
+- At that step `config/factor_data.yaml` used null paths for PIT prices, announcement-dated fundamentals, and membership. The later acquisition-bot step named local output paths but did not create the inputs, because no such data is in the repo and the ₹0 budget forbids vendor contact.
 - `nse-engine factor check` only reads config, checks file existence, verifies the frozen hash, and reads the registry for holdout state. It computes no factors, places no orders, writes no trials, and does not access holdout data.
 - The readiness gate is not a factor study run. Actual execution still requires a separate owner decision to supply PIT data, plus a re-verification that the frozen hash still matches before any code consumes it.
+
+# PIT acquisition bot
+
+- "Let achieve this by script or bot in this solution" is interpreted as authorization to add local, config-driven acquisition commands under `factor acquire`: dated NSE bhavcopy downloads, PIT top-200 membership generation, and announcement-metadata/filing downloads.
+- The bot uses only public NSE endpoints and no credentials, no vendor spend, and no live order endpoint. URL templates, date bounds, weekdays, delays, retries, raw/filing directories, and exclusions live in `config/factor_data.yaml`; the frozen factor design and ₹0 budget are unchanged.
+- Bhavcopy files are stored as immutable dated snapshots with a `.zip` suffix before the configured UDiFF boundary and `.csv` on and after it. The membership builder ranks symbols using only rows with date <= the rebalance date and a trailing window, so later delistings or late liquidity spikes cannot leak backwards.
+- The announcement bot downloads metadata and linked filing PDFs; it does not yet extract EPS/net-profit/equity fields. Filing paths derive from a SHA-256 digest of the URL so repeated runs are deterministic. A future parser must append announcement-dated rows and never overwrite prior values, so restatements cannot leak into earlier rebalances.
+- No network download is executed by `make check`. Tests use mocked HTTP transports and synthetic local files. Running `factor acquire prices` is an explicit owner action.
 
 # Remaining phases (5 and 6)
 

@@ -149,9 +149,25 @@ make factor
 # equivalent: uv run --no-sync nse-engine factor check
 ```
 
-It validates `config/factor.yaml`, verifies that `docs/FACTOR_STUDY_PREREG.md` still matches its configured SHA-256 hash, checks the point-in-time input paths in `config/factor_data.yaml`, confirms causal lags and PIT requirements, and checks that the registry still has no holdout trials or unlocks. With the checked-in null paths it exits non-zero and lists the missing inputs. It computes no factors, writes no trials, places no orders, and reads no holdout data.
+It validates `config/factor.yaml`, verifies that `docs/FACTOR_STUDY_PREREG.md` still matches its configured SHA-256 hash, checks the point-in-time input paths in `config/factor_data.yaml`, confirms causal lags and PIT requirements, and checks that the registry still has no holdout trials or unlocks. Until the acquisition commands below create those inputs, it exits non-zero and lists the missing paths. It computes no factors, writes no trials, places no orders, and reads no holdout data.
 
-There is no factor-study execution CLI, no data acquisition, no vendor contact, no approval, and no holdout access. `make check` includes guard tests that reject owner-decision placeholders, verify that signal/order and announcement lags are at least one session, and exercise the ready and blocked readiness paths. Changing any frozen slot after data access invalidates the study and requires a new pre-registration.
+### Public PIT acquisition bot
+
+`config/factor_data.yaml` also holds the public NSE URL templates, date bounds, weekday filter, delays, retries, and symbol exclusions used by a local-only acquisition bot. It uses no credentials, contacts no vendor, and has no live order path. The frozen factor design and ₹0 budget are unchanged.
+
+```bash
+make factor-acquire
+# equivalent: uv run --no-sync nse-engine factor acquire --help
+
+uv run --no-sync nse-engine factor acquire prices
+uv run --no-sync nse-engine factor acquire membership
+uv run --no-sync nse-engine factor acquire announcements
+uv run --no-sync nse-engine factor acquire filings
+```
+
+Run them in that order. `prices` writes immutable dated bhavcopies under `data/pit/bhavcopy`; `membership` derives top-N snapshots using only data available at each rebalance date; `announcements` downloads public announcement metadata into `data/pit/fundamentals_announcements.parquet` and raw JSON chunks; `filings` downloads linked PDFs without overwriting existing copies. All commands print the research disclaimer. The announcement bot does **not** yet extract EPS, net profit, or equity values from filings, so `make factor` will still not treat its output as a validated fundamentals source until a restatement-safe parser is added.
+
+`make check` includes mocked HTTP tests, synthetic dated bhavcopies, and a causality test showing that a later liquidity spike cannot change an earlier membership snapshot. It also includes guard tests that reject owner-decision placeholders, verify that signal/order and announcement lags are at least one session, and exercise the ready and blocked readiness paths. There is still no factor-study execution CLI, no vendor contact, no approval, and no holdout access. Changing any frozen slot after data access invalidates the study and requires a new pre-registration.
 
 ## Project phases
 
@@ -162,6 +178,6 @@ There is no factor-study execution CLI, no data acquisition, no vendor contact, 
 4. Paper trading: implementation complete; the optimized real-data no-signal run is verified, and approvals remain empty.
 5. UI and reports: complete with a seven-page read-only Streamlit dashboard and reusable Plotly/HTML charts; `make ui` launches it.
 6. Broker interface: complete with live trading disabled; Groww order methods always raise `LiveTradingDisabled`.
-7. Next research program: factor study pre-registered and frozen with a ₹0 budget; no study code or data access has started.
+7. Next research program: factor study pre-registered and frozen with a ₹0 budget; a readiness gate and public-data acquisition bot exist, but no factor study has run and no holdout data has been accessed.
 
 See [docs/STATUS.md](docs/STATUS.md) for verification and manual prerequisites, [docs/REAL_DATA_RUNBOOK.md](docs/REAL_DATA_RUNBOOK.md) for the adapted EOD2 workflow, and [docs/SPEC.md](docs/SPEC.md) for requirements and acceptance criteria.
