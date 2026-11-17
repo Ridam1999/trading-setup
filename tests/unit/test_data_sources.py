@@ -77,7 +77,10 @@ def test_eod2_source_imports_directory_of_symbol_files(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     ("fixture", "expected_date"),
-    [("bhavcopy_legacy_sample.csv", "2024-01-02"), ("bhavcopy_udiff_sample.csv", "2024-01-03")],
+    [
+        ("bhavcopy_legacy_sample.csv", "2024-01-02"),
+        ("bhavcopy_udiff_sample.csv", "2024-01-03"),
+    ],
 )
 def test_bhavcopy_source_supports_both_formats(fixture: str, expected_date: str) -> None:
     """Legacy and UDiFF headers normalize to raw daily bars."""
@@ -86,6 +89,17 @@ def test_bhavcopy_source_supports_both_formats(fixture: str, expected_date: str)
     assert len(frame) == 2
     assert frame.loc[0, "date"].isoformat() == expected_date
     assert frame["source"].eq("nse_bhavcopy_raw").all()
+
+
+def test_current_udiff_quantity_and_delivery_columns_are_mapped() -> None:
+    """The 2026 UDiFF header maps traded quantity and delivery fields correctly."""
+    frame = BhavcopySource().load(FIXTURES / "bhavcopy_udiff_2026_sample.csv")
+
+    assert frame["symbol"].tolist() == ["20MICRONS"]
+    assert frame.loc[0, "date"].isoformat() == "2026-11-13"
+    assert frame["volume"].iloc[0] == 37270
+    assert frame["delivery_qty"].iloc[0] == 20990
+    assert frame["delivery_pct"].iloc[0] == pytest.approx(56.32)
 
 
 def test_empty_source_fails_loudly(tmp_path: Path) -> None:

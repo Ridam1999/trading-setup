@@ -10,12 +10,15 @@ dist/
 build/
 *.egg-info/
 .env
+.DS_Store
 data/raw/**
 data/adjusted/**
 data/duckdb/**
+data/pit/**
 !data/raw/.gitkeep
 !data/adjusted/.gitkeep
 !data/duckdb/.gitkeep
+!data/pit/.gitkeep
 reports/**
 !reports/.gitkeep
 logs/**
