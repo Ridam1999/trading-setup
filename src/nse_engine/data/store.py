@@ -8,7 +8,7 @@ from pathlib import Path
 import duckdb
 import pandas as pd  # type: ignore[import-untyped]
 
-from nse_engine.data.sources.base import OHLCV_COLUMNS
+from nse_engine.data.sources.base import OHLCV_COLUMNS, source_priority
 
 
 class MarketDataStore:
@@ -53,7 +53,9 @@ class MarketDataStore:
         raw_closes = raw_candidates.sort_values("ingested_at").drop_duplicates(
             ["symbol", "date"], keep="last"
         )[["symbol", "date", "close_raw_latest"]]
-        merged["source_priority"] = merged["source"].eq("eod2_adjusted").astype(int)
+        merged["source_priority"] = (
+            merged["source"].map(lambda value: source_priority(str(value))).astype(int)
+        )
         merged = merged.sort_values(["source_priority", "ingested_at"])
         merged = merged.drop_duplicates(["symbol", "date"], keep="last")
         merged = merged.drop(columns="source_priority")

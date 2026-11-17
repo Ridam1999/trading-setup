@@ -44,6 +44,10 @@ class DataConfig(BaseModel):
     retry_wait_seconds: float = Field(gt=0)
     request_timeout_seconds: float = Field(gt=0)
     nse_bhavcopy_url: str | None = None
+    corporate_actions_path: Path | None = None
+    pit_membership_path: Path | None = None
+    require_corporate_actions: bool = True
+    require_pit_membership: bool = True
     holidays: list[date] = Field(default_factory=list)
 
 

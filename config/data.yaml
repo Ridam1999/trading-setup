@@ -10,4 +10,9 @@ retry_attempts: 3
 retry_wait_seconds: 1.0
 request_timeout_seconds: 30
 nse_bhavcopy_url: null
+# Point-in-time inputs. Keep null until verified PIT files are supplied.
+corporate_actions_path: null
+pit_membership_path: null
+require_corporate_actions: true
+require_pit_membership: true
 holidays: []

@@ -6,6 +6,18 @@ from typing import Protocol
 
 import pandas as pd  # type: ignore[import-untyped]
 
+SOURCE_PRIORITY: dict[str, int] = {
+    "nse_bhavcopy_raw": 0,
+    "eod2_adjusted": 1,
+    "pit_adjusted": 2,
+}
+
+
+def source_priority(source: str) -> int:
+    """Return merge precedence for a source; unknown sources rank below raw checks."""
+    return SOURCE_PRIORITY.get(source, 0)
+
+
 OHLCV_COLUMNS: tuple[str, ...] = (
     "symbol",
     "date",

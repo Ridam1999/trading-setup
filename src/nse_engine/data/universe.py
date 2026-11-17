@@ -32,6 +32,40 @@ def load_universe(path: Path) -> pd.DataFrame:
     )
 
 
+def load_pit_membership(path: str | Path) -> pd.DataFrame:
+    """Load dated index membership rows, including delisted-symbol end dates."""
+    membership = pd.read_csv(path)
+    required = {"symbol", "start_date"}
+    missing = required.difference(membership.columns)
+    if missing:
+        raise ValueError(f"PIT membership is missing columns: {', '.join(sorted(missing))}")
+    if membership.empty:
+        raise ValueError(f"PIT membership file is empty: {path}")
+    membership["symbol"] = membership["symbol"].astype("string").str.strip().str.upper()
+    membership["start_date"] = pd.to_datetime(membership["start_date"], errors="coerce").dt.date
+    if "end_date" not in membership.columns:
+        membership["end_date"] = None
+    else:
+        membership["end_date"] = pd.to_datetime(membership["end_date"], errors="coerce").dt.date
+    if "index_name" not in membership.columns:
+        membership["index_name"] = "pit_universe"
+    if "membership_type" not in membership.columns:
+        membership["membership_type"] = "point_in_time"
+    membership["membership_type"] = (
+        membership["membership_type"].astype("string").str.strip().str.lower()
+    )
+    invalid = (
+        membership["symbol"].isna()
+        | membership["start_date"].isna()
+        | ~membership["membership_type"].isin({"point_in_time", "delisted_inclusive"})
+        | (membership["end_date"].notna() & (membership["end_date"] < membership["start_date"]))
+    )
+    if invalid.any():
+        raise ValueError("PIT membership contains an invalid symbol, date range, or type")
+    columns = ["symbol", "index_name", "start_date", "end_date", "membership_type"]
+    return membership.loc[:, columns].sort_values(["symbol", "start_date"], ignore_index=True)
+
+
 def point_in_time_liquidity_membership(
     frame: pd.DataFrame,
     top_n: int,
