@@ -268,6 +268,28 @@ def test_runner_fills_orders_only_from_the_next_session(tmp_path: Path) -> None:
     assert other_ledger.report_rows()["fills"] == fills
 
 
+def test_delayed_run_still_fills_from_the_first_session_after_the_order(tmp_path: Path) -> None:
+    """A skipped session does not move a pending order's fill to the run date."""
+    paper = _paper(tmp_path)
+    ledger = PaperLedger(paper.ledger_path)
+    approved = [_approval()]
+    setups = [TriggerSetup(_setup_config())]
+    arguments = (
+        approved,
+        _settings(),
+        _costs(),
+        paper,
+        ledger,
+        "SURVIVOR_BIASED",
+    )
+    run_paper_day(date(2024, 1, 3), _market(), *arguments, setups=setups)
+    run_paper_day(date(2024, 1, 5), _market(), *arguments, setups=setups)
+    fills = ledger.report_rows()["fills"]
+    assert len(fills) == 1
+    assert fills[0]["fill_date"] == "2024-01-04"
+    assert fills[0]["fill_price"] == pytest.approx(100.0)
+
+
 def test_no_signal_day_writes_a_valid_report(tmp_path: Path) -> None:
     """An empty approval set still produces a report with disclaimer and bias status."""
     paper = _paper(tmp_path)

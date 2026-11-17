@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 import sqlite3
+from bisect import bisect_right
 from collections.abc import Sequence
 from datetime import date
 from typing import Any
@@ -49,10 +50,8 @@ def _sector(symbol: str, settings: BacktestSettings) -> str:
     return f"unclassified:{symbol}"
 
 
-def _prepared_bars(
-    frame: pd.DataFrame, run_date: date
-) -> tuple[pd.DataFrame, dict[date, dict[str, pd.Series]]]:
-    """Return data through ``run_date`` and its per-session, per-symbol bars."""
+def _prepared_bars(frame: pd.DataFrame, run_date: date) -> tuple[pd.DataFrame, list[date]]:
+    """Return causal data through ``run_date`` and its sorted observed sessions."""
     missing = set(REQUIRED_COLUMNS).difference(frame.columns)
     if missing:
         raise ValueError(f"Paper data is missing columns: {', '.join(sorted(missing))}")
@@ -64,11 +63,13 @@ def _prepared_bars(
     dates = sorted(history["date"].unique())
     if run_date not in dates:
         raise ValueError(f"No market data is available on {run_date.isoformat()}")
-    sessions = {
-        day: {str(row["symbol"]): row for _, row in history.loc[history["date"] == day].iterrows()}
-        for day in dates
-    }
-    return history, sessions
+    return history, dates
+
+
+def _session_bars(bars: pd.DataFrame, day: date) -> dict[str, pd.Series]:
+    """Return only one session's bars rather than materializing the full history."""
+    rows = bars.loc[bars["date"].eq(day)]
+    return {str(row["symbol"]): row for _, row in rows.iterrows()}
 
 
 def _mark_price(bar: pd.Series | None, fallback: float) -> float:
@@ -163,21 +164,24 @@ def _process_pending_fills(
     costs: CostsConfig,
     run_date: date,
     dates: list[date],
-    sessions: dict[date, dict[str, pd.Series]],
+    bars: pd.DataFrame,
     cash: float,
 ) -> tuple[float, int]:
     """Simulate next-session limit fills for orders created on earlier runs."""
     fills = 0
+    session_cache: dict[date, dict[str, pd.Series]] = {}
     for order in ledger.pending_orders(connection):
         if order.run_date >= run_date:
             continue
-        later = [day for day in dates if day > order.run_date]
-        if not later:
+        next_session = bisect_right(dates, order.run_date)
+        if next_session >= len(dates):
             continue
-        fill_date = later[0]
+        fill_date = dates[next_session]
         if fill_date > run_date:
             continue
-        bar = sessions[fill_date].get(order.symbol)
+        if fill_date not in session_cache:
+            session_cache[fill_date] = _session_bars(bars, fill_date)
+        bar = session_cache[fill_date].get(order.symbol)
         if bar is None:
             ledger.update_order_status(order.order_id, "no_bar", connection)
             continue
@@ -487,10 +491,9 @@ def run_paper_day(
     setups: Sequence[Setup] | None = None,
 ) -> PaperRunSummary:
     """Run one calendar date once, then emit its report and JSON order plan."""
-    bars, sessions = _prepared_bars(frame, run_date)
-    dates = sorted(sessions)
+    bars, dates = _prepared_bars(frame, run_date)
     session_index = {day: index for index, day in enumerate(dates)}
-    todays_bars = sessions[run_date]
+    todays_bars = _session_bars(bars, run_date)
     active_setups = (
         list(setups)
         if setups is not None
@@ -514,7 +517,7 @@ def run_paper_day(
                 ledger.cash_balance(connection),
             )
             _cash, fills = _process_pending_fills(
-                connection, ledger, settings, costs, run_date, dates, sessions, cash
+                connection, ledger, settings, costs, run_date, dates, bars, cash
             )
             suspended = ledger.suspended_setups(connection)
             candidates = scan_close(bars, active_setups, run_date, suspended, membership)
