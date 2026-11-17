@@ -1,0 +1,20 @@
+name: delivery_spike
+universe: nse_equities
+rationale: >-
+  A delivery percentage far above its own trailing average, on a positive close,
+  means a larger share of the day's volume was settled rather than squared intraday.
+  That is evidence of accumulation by delivery-based participants rather than
+  short-term churn, so the setup tests whether the buying persists into the next
+  session.
+params:
+  delivery_average_window: 20
+  delivery_multiple: 2.0
+  traded_value_window: 20
+filters:
+  minimum_price: 20
+  minimum_average_traded_value: 5000000
+exit_rules:
+  stop_loss_pct: 8
+  target_pct: 20
+sweep_grid:
+  delivery_multiple: [1.5, 2.0, 2.5]

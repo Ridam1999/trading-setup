@@ -1,0 +1,21 @@
+name: relative_strength_regime
+universe: nse_equities
+rationale: >-
+  Stocks that outperform a broad index over a trailing window can keep doing so when
+  the index itself is in a benign regime: above its long moving average and outside
+  the high-volatility tercile. Combining excess relative return with that causal
+  market filter avoids buying strength during broad market stress.
+params:
+  rs_lookback: 20
+  rs_min_excess_pct: 2.0
+  benchmark_trend_length: 200
+  benchmark_volatility_length: 20
+  traded_value_window: 20
+filters:
+  minimum_price: 20
+  minimum_average_traded_value: 5000000
+exit_rules:
+  stop_loss_pct: 8
+  target_pct: 20
+sweep_grid:
+  rs_min_excess_pct: [1.0, 2.0, 3.0]
