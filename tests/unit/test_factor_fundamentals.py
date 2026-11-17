@@ -205,6 +205,37 @@ def test_parse_filings_reports_missing_and_unparsed_files(
     assert summary.unparsed_files == 1
 
 
+def test_parse_filings_counts_malformed_pdf_without_aborting(tmp_path: Path) -> None:
+    """A corrupt filing is reported as unparsed and does not stop the batch."""
+    settings = _settings(tmp_path)
+    index_path = tmp_path / "announcement_index.parquet"
+    url = "https://pdf.test/malformed.pdf"
+    pd.DataFrame(
+        [
+            {
+                "symbol": "AAA",
+                "announcement_date": date(2024, 1, 2),
+                "headline": "Financial Results",
+                "pdf_url": url,
+                "source_url": "https://api.test/malformed",
+                "ingested_at": "2024-01-02T00:00:00+00:00",
+            }
+        ]
+    ).to_parquet(index_path, index=False)
+    _write_filing(settings, "AAA", date(2024, 1, 2), url)
+
+    summary = parse_filings(
+        index_path,
+        settings,
+        _fundamentals(),
+        tmp_path / "fundamentals.parquet",
+    )
+
+    assert summary.files_read == 1
+    assert summary.rows_added == 0
+    assert summary.unparsed_files == 1
+
+
 def test_extract_text_from_pdf_accepts_a_real_pdf(tmp_path: Path) -> None:
     """The parser can open a valid PDF even when it contains no text."""
     path = tmp_path / "blank.pdf"

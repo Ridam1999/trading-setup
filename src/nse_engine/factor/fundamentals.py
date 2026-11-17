@@ -15,6 +15,7 @@ from typing import Any
 
 import pandas as pd  # type: ignore[import-untyped]
 from pypdf import PdfReader
+from pypdf.errors import PdfReadError
 
 from nse_engine.factor.acquire import filing_path, should_download_filing
 from nse_engine.factor.config import AcquisitionConfig, FundamentalExtractionConfig
@@ -132,7 +133,11 @@ def parse_filings(
             missing_files += 1
             continue
         files_read += 1
-        text = extract_text_from_pdf(path)
+        try:
+            text = extract_text_from_pdf(path)
+        except (OSError, PdfReadError, ValueError):
+            unparsed_files += 1
+            continue
         found = 0
         for field_name, field_config in fundamentals.fields.items():
             multiplier = fundamentals.crore_multiplier if field_config.unit == "crore" else 1.0
