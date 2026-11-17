@@ -81,8 +81,16 @@
 - "Let achieve this by script or bot in this solution" is interpreted as authorization to add local, config-driven acquisition commands under `factor acquire`: dated NSE bhavcopy downloads, PIT top-200 membership generation, and announcement-metadata/filing downloads.
 - The bot uses only public NSE endpoints and no credentials, no vendor spend, and no live order endpoint. URL templates, date bounds, weekdays, delays, retries, raw/filing directories, and exclusions live in `config/factor_data.yaml`; the frozen factor design and ₹0 budget are unchanged.
 - Bhavcopy files are stored as immutable dated snapshots with a `.zip` suffix before the configured UDiFF boundary and `.csv` on and after it. The membership builder ranks symbols using only rows with date <= the rebalance date and a trailing window, so later delistings or late liquidity spikes cannot leak backwards.
-- The announcement bot downloads metadata and linked filing PDFs; it does not yet extract EPS/net-profit/equity fields. Filing paths derive from a SHA-256 digest of the URL so repeated runs are deterministic. A future parser must append announcement-dated rows and never overwrite prior values, so restatements cannot leak into earlier rebalances.
+- The announcement bot downloads metadata and linked filing PDFs into `announcement_index.parquet`; the parsed fundamentals output is a separate `fundamentals_path` so metadata never masquerades as validated fundamentals. Filing paths derive from a SHA-256 digest of the URL so repeated runs are deterministic.
 - No network download is executed by `make check`. Tests use mocked HTTP transports and synthetic local files. Running `factor acquire prices` is an explicit owner action.
+
+# Fundamentals parser
+
+- The next "go next" is interpreted as authorization to add a restatement-safe parser, not to run acquisition, trust extracted values without review, or compute factors.
+- Label patterns, the crore multiplier, and the label/value gap live in `config/factor_data.yaml`. The three extracted fields are exactly the frozen fields from `config/factor.yaml`: diluted EPS, net profit, and average shareholders' equity.
+- `factor acquire fundamentals` reads downloaded PDFs only, appends announcement-dated rows to `data/pit/fundamentals_announcements.parquet`, and never rewrites or deletes prior rows. Reruns are idempotent; missing or unparseable PDFs are counted in the summary.
+- `select_fundamentals_as_of` uses only rows announced on or before the supplied cutoff; the caller must apply the configured session lag. A regression test proves a restatement cannot leak into an earlier cutoff.
+- Parsing is best-effort and needs manual review before any fundamental factor is computed. `pypdf` is pinned in `pyproject.toml` and `uv.lock`; no new network path is added.
 
 # Remaining phases (5 and 6)
 

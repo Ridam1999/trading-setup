@@ -153,7 +153,7 @@ It validates `config/factor.yaml`, verifies that `docs/FACTOR_STUDY_PREREG.md` s
 
 ### Public PIT acquisition bot
 
-`config/factor_data.yaml` also holds the public NSE URL templates, date bounds, weekday filter, delays, retries, and symbol exclusions used by a local-only acquisition bot. It uses no credentials, contacts no vendor, and has no live order path. The frozen factor design and ₹0 budget are unchanged.
+`config/factor_data.yaml` also holds the public NSE URL templates, date bounds, weekday filter, delays, retries, symbol exclusions, and filing text-extraction rules used by a local-only acquisition bot. It uses no credentials, contacts no vendor, and has no live order path. The frozen factor design and ₹0 budget are unchanged. PDF text extraction uses the pinned `pypdf==7.1.0` dependency.
 
 ```bash
 make factor-acquire
@@ -163,11 +163,14 @@ uv run --no-sync nse-engine factor acquire prices
 uv run --no-sync nse-engine factor acquire membership
 uv run --no-sync nse-engine factor acquire announcements
 uv run --no-sync nse-engine factor acquire filings
+uv run --no-sync nse-engine factor acquire fundamentals
 ```
 
-Run them in that order. `prices` writes immutable dated bhavcopies under `data/pit/bhavcopy`; `membership` derives top-N snapshots using only data available at each rebalance date; `announcements` downloads public announcement metadata into `data/pit/fundamentals_announcements.parquet` and raw JSON chunks; `filings` downloads linked PDFs without overwriting existing copies. All commands print the research disclaimer. The announcement bot does **not** yet extract EPS, net profit, or equity values from filings, so `make factor` will still not treat its output as a validated fundamentals source until a restatement-safe parser is added.
+Run them in that order. `prices` writes immutable dated bhavcopies under `data/pit/bhavcopy`; `membership` derives top-N snapshots using only data available at each rebalance date; `announcements` downloads public announcement metadata into `data/pit/announcement_index.parquet` and raw JSON chunks; `filings` downloads linked PDFs without overwriting existing copies; `fundamentals` appends parsed, announcement-dated EPS, net-profit, and equity rows to `data/pit/fundamentals_announcements.parquet`. All commands print the research disclaimer.
 
-`make check` includes mocked HTTP tests, synthetic dated bhavcopies, and a causality test showing that a later liquidity spike cannot change an earlier membership snapshot. It also includes guard tests that reject owner-decision placeholders, verify that signal/order and announcement lags are at least one session, and exercise the ready and blocked readiness paths. There is still no factor-study execution CLI, no vendor contact, no approval, and no holdout access. Changing any frozen slot after data access invalidates the study and requires a new pre-registration.
+The parser is best-effort: label patterns and crore scaling live in YAML, missing or unparseable PDFs are reported, and prior rows are never overwritten. A restatement appends a later-announcement row, and `select_fundamentals_as_of` shows that later values cannot leak into earlier cutoffs. Manual review is still required before these values are trusted; no factor study has run.
+
+`make check` includes mocked HTTP tests, synthetic dated bhavcopies, a causality test showing that a later liquidity spike cannot change an earlier membership snapshot, and restatement/idempotency tests for fundamentals parsing. It also includes guard tests that reject owner-decision placeholders, verify that signal/order and announcement lags are at least one session, and exercise the ready and blocked readiness paths. There is still no factor-study execution CLI, no vendor contact, no approval, and no holdout access. Changing any frozen slot after data access invalidates the study and requires a new pre-registration.
 
 ## Project phases
 
@@ -178,6 +181,6 @@ Run them in that order. `prices` writes immutable dated bhavcopies under `data/p
 4. Paper trading: implementation complete; the optimized real-data no-signal run is verified, and approvals remain empty.
 5. UI and reports: complete with a seven-page read-only Streamlit dashboard and reusable Plotly/HTML charts; `make ui` launches it.
 6. Broker interface: complete with live trading disabled; Groww order methods always raise `LiveTradingDisabled`.
-7. Next research program: factor study pre-registered and frozen with a ₹0 budget; a readiness gate and public-data acquisition bot exist, but no factor study has run and no holdout data has been accessed.
+7. Next research program: factor study pre-registered and frozen with a ₹0 budget; a readiness gate, public-data acquisition bot, and restatement-safe fundamentals parser exist, but no factor study has run and no holdout data has been accessed.
 
 See [docs/STATUS.md](docs/STATUS.md) for verification and manual prerequisites, [docs/REAL_DATA_RUNBOOK.md](docs/REAL_DATA_RUNBOOK.md) for the adapted EOD2 workflow, and [docs/SPEC.md](docs/SPEC.md) for requirements and acceptance criteria.

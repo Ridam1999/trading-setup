@@ -60,8 +60,16 @@
 
 # Public PIT acquisition decision (2026-11-18)
 
-- "Let achieve this by script or bot in this solution" is interpreted as authorization to add local acquisition commands, not as authorization to run them, buy data, extract filing fields, or execute a factor study.
+- "Let achieve this by script or bot in this solution" is interpreted as authorization to add local acquisition commands, not as authorization to run them, buy data, or execute a factor study. Filing-field extraction was deferred to a later bounded step.
 - The bot is limited to public NSE endpoints with no credentials, vendor contact, or live order path. Every URL, date bound, weekday, delay, retry, directory, and exclusion is in `config/factor_data.yaml`; the frozen design and ₹0 budget are unchanged.
 - Dated bhavcopies are immutable. Membership snapshots use only data available on or before each rebalance date, with a regression test proving later liquidity spikes cannot change earlier snapshots.
-- Announcement metadata and PDFs are downloaded but not parsed into EPS/net-profit/equity fields. A future parser must append announcement-dated rows and preserve prior values on restatement before any fundamental factor may be computed.
+- Announcement metadata is stored at `announcement_index.parquet`, separate from the `fundamentals_path` output. Filing paths derive from a SHA-256 URL digest so repeated downloads are deterministic.
 - Network acquisition is an explicit owner action. Verification uses mocked HTTP transports and synthetic local files only; no public endpoint was contacted during `make check`.
+
+# Fundamentals parser decision (2026-11-18)
+
+- The next bounded step adds a best-effort PDF text parser, not a factor study and not a trust gate. Extracted values require manual review before they are treated as evidence.
+- Only the three frozen fields are recognized. Label patterns, the crore multiplier, and the label/value gap are in `config/factor_data.yaml`; changing them does not alter `config/factor.yaml` or the frozen hash.
+- Parsed rows are append-only and announcement-dated. Reruns skip exact existing rows; restatements append later-dated rows. Missing or unparseable PDFs are reported rather than silently dropped.
+- `select_fundamentals_as_of` enforces cutoff-based causality, with a test showing a 2018-style restatement pattern cannot alter a 2017 cutoff. The caller must still apply the configured session-based announcement lag.
+- `pypdf==7.1.0` is pinned in `pyproject.toml` and `uv.lock`. No new credential, vendor, live-order, or network path is introduced by parsing.
