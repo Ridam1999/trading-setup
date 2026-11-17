@@ -345,3 +345,13 @@ def test_decay_suspends_after_consecutive_breaches() -> None:
     setup = TriggerSetup(_setup_config())
     market = _market()
     assert scan_close(market, [setup], date(2024, 1, 3), suspended=["trigger"]) == []
+
+
+def test_membership_stays_aligned_to_original_rows() -> None:
+    """Point-in-time membership follows its bar even when the frame is unsorted."""
+    setup = TriggerSetup(_setup_config())
+    unsorted = _market().iloc[[2, 0, 3, 1]].reset_index(drop=True)
+    # The signal bar is the last row of this deliberately unsorted frame.
+    membership = pd.Series([False, False, False, True])
+    candidates = scan_close(unsorted, [setup], date(2024, 1, 3), membership=membership)
+    assert [candidate.symbol for candidate in candidates] == ["EDGE"]

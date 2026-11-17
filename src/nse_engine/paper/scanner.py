@@ -45,7 +45,7 @@ def scan_close(
 
     bars = frame.copy().reset_index(drop=True)
     bars["date"] = pd.to_datetime(bars["date"]).dt.date
-    history = bars.loc[bars["date"] <= signal_date].reset_index(drop=True)
+    history = bars.loc[bars["date"] <= signal_date].copy()
     if history.empty or not history["date"].eq(signal_date).any():
         raise ValueError(f"No market data is available on or before {signal_date.isoformat()}")
 
@@ -53,11 +53,10 @@ def scan_close(
         if len(membership) != len(frame):
             raise ValueError("membership must be aligned to the supplied frame")
         aligned = pd.Series(membership.to_numpy(dtype=bool), index=bars.index)
-        history = history.assign(
-            _pit_member=aligned.reindex(history.index).fillna(False).to_numpy(dtype=bool)
-        )
+        history["_pit_member"] = aligned.reindex(history.index).fillna(False).to_numpy(dtype=bool)
     else:
-        history = history.assign(_pit_member=True)
+        history["_pit_member"] = True
+    history = history.reset_index(drop=True)
 
     blocked = set(suspended)
     candidates: list[SignalCandidate] = []
