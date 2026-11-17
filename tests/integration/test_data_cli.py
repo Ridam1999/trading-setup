@@ -1,5 +1,6 @@
 """Integration coverage for the Phase 1 data CLI using local fixtures."""
 
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -64,12 +65,85 @@ def test_import_check_and_summary_commands(tmp_path: Path, monkeypatch) -> None:
     ).is_file()
 
 
+def test_import_and_verify_pit(tmp_path: Path, monkeypatch) -> None:
+    """PIT import writes adjusted bars and dated membership; verification writes evidence."""
+    config_dir = tmp_path / "config"
+    config_dir.mkdir()
+    actions = Path("tests/fixtures/corporate_actions_sample.csv").resolve()
+    membership = Path("tests/fixtures/pit_membership_sample.csv").resolve()
+    (config_dir / "base.yaml").write_text(
+        "app_name: nse-setup-research-engine\ntimezone: Asia/Kolkata\n"
+        "log_level: INFO\nrandom_seed: 1\n",
+        encoding="utf-8",
+    )
+    (config_dir / "data.yaml").write_text(
+        f"raw_dir: {tmp_path / 'raw'}\nadjusted_dir: {tmp_path / 'adjusted'}\n"
+        f"duckdb_path: {tmp_path / 'db' / 'prices.duckdb'}\n"
+        f"reports_dir: {tmp_path / 'reports'}\nminimum_analysis_date: 2005-01-01\n"
+        "maximum_single_day_return_pct: 100\nmaximum_adjusted_raw_difference_pct: 2\n"
+        "stale_close_days: 5\nretry_attempts: 2\nretry_wait_seconds: 0.1\n"
+        "request_timeout_seconds: 1\nholidays: []\nnse_bhavcopy_url: null\n"
+        f"corporate_actions_path: {actions}\npit_membership_path: {membership}\n"
+        "require_corporate_actions: true\nrequire_pit_membership: true\n",
+        encoding="utf-8",
+    )
+    research_config = config_dir / "research.yaml"
+    research_config.write_text("data_bias_status: SURVIVOR_BIASED\n", encoding="utf-8")
+    monkeypatch.setenv("NSE_ENGINE_CONFIG_DIR", str(config_dir))
+    pit_path = Path("tests/fixtures/pit_raw_sample.csv").resolve()
+
+    imported = runner.invoke(app, ["data", "import-pit", "--path", str(pit_path)])
+    assert imported.exit_code == 0, imported.output
+    assert "Imported 5 PIT rows" in imported.output
+    assert (
+        tmp_path / "adjusted" / "universe_membership" / "year=2018" / "membership.parquet"
+    ).is_file()
+    summary = runner.invoke(app, ["data", "summary"])
+    assert summary.exit_code == 0, summary.output
+    assert '"rows": 5' in summary.output
+
+    verified = runner.invoke(app, ["data", "verify-pit", "--path", str(pit_path)])
+    assert verified.exit_code == 0, verified.output
+    assert "PIT verification passed" in verified.output
+    report = json.loads(
+        (tmp_path / "reports" / "pit_verification.json").read_text(encoding="utf-8")
+    )
+    assert report["passed"] is True
+    assert report["declared_data_bias_status"] == "SURVIVOR_BIASED"
+    assert "not advice" in report["disclaimer"]
+    assert report["checks"]["membership_covers_all_symbols"] is True
+
+    partial_membership = tmp_path / "partial_membership.csv"
+    partial_membership.write_text("symbol,start_date\nCCAVENUE,2020-01-01\n", encoding="utf-8")
+    failed = runner.invoke(
+        app,
+        [
+            "data",
+            "verify-pit",
+            "--path",
+            str(pit_path),
+            "--membership",
+            str(partial_membership),
+        ],
+    )
+    assert failed.exit_code == 1
+    assert "membership_covers_all_symbols=False" in failed.output
+    failed_report = json.loads(
+        (tmp_path / "reports" / "pit_verification.json").read_text(encoding="utf-8")
+    )
+    assert failed_report["passed"] is False
+    assert failed_report["details"]["symbols_without_membership"] == ["DELISTED"]
+    assert research_config.read_text(encoding="utf-8") == "data_bias_status: SURVIVOR_BIASED\n"
+
+
 def test_data_help_lists_commands() -> None:
     """The real Typer help renderer exposes all supported data commands."""
     result = runner.invoke(app, ["data", "--help"])
 
     assert result.exit_code == 0, result.output
     assert "import-eod2" in result.output
+    assert "import-pit" in result.output
+    assert "verify-pit" in result.output
     assert "update" in result.output
     assert "check" in result.output
     assert "summary" in result.output
