@@ -28,3 +28,11 @@
 - The decay monitor uses the worst single closed-trade return as its drawdown proxy because approvals store per-trade summaries rather than an equity curve. Portfolio-level marked drawdown is shown in the report for information only.
 - `paper run` validates the data slice it consumes but does not rerun the full multi-year health report; `nse-engine data check` remains the authoritative quality gate.
 - An empty `approved_setups.yaml` is a valid no-trade state. Paper reports contain no timestamps so a repeated idempotent run reproduces identical files.
+
+# Real-data verification assumptions
+
+- `random_signal` draws are hashes of `(seed, symbol, session date)` only. They are deterministic, independent of OHLCV history, and expected to fail every gate.
+- The point-in-time stock universe ranks symbols by trailing median traded value using only data available on each date; whitespace-containing EOD2 index labels are excluded by configuration.
+- `CCAVENUE` had a 10:1 share consolidation effective 2026-10-13, with trading resumed 2026-10-19. EOD2 did not back-adjust the bars, so returns spanning that date are excluded from interpretation.
+- The event-study fast path vectorizes the same fill and charge rules as the single-event simulator; equivalence is covered by tests, and registry trials are appended rather than overwritten.
+- Paper runs materialize session bars only for the signal date and the first observed session after each pending order. Delayed runs therefore still fill from the first session after the order date, and future bars cannot affect earlier fills.

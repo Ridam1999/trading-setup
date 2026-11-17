@@ -32,10 +32,11 @@ uv run --no-sync nse-engine data summary
 ```sh
 uv run --no-sync nse-engine study run --setup pullback_uptrend --split train
 uv run --no-sync nse-engine study sweep --setup pullback_uptrend --split train
+uv run --no-sync nse-engine study run --setup random_signal --split train
 uv run --no-sync nse-engine study report
 ```
 
-Studies append every setup/parameter/split/horizon result to the SQLite registry at `data/duckdb/trials.sqlite` and save per-event Parquet files in `reports/study_events/`. The report applies Benjamini-Hochberg correction across logged trials and evaluates configured approval gates. Holdout data stays locked; accessing it requires `--unlock-holdout`, which adds an audit row to the registry. Rates in `config/costs.yaml` are illustrative and must be verified before relying on results.
+Studies append every setup/parameter/split/horizon result to the SQLite registry at `data/duckdb/trials.sqlite` and save per-event Parquet files in `reports/study_events/`. The report applies Benjamini-Hochberg correction across logged trials and evaluates configured approval gates. `random_signal` is a seeded negative control with no price dependence; it must fail the gates. Holdout data stays locked; accessing it requires `--unlock-holdout`, which adds an audit row to the registry. With `research.data_bias_status: SURVIVOR_BIASED`, a statistical pass is provisional only and cannot populate approved_setups.yaml.
 
 ### Phase 3: portfolio backtests
 
@@ -60,15 +61,15 @@ uv run --no-sync nse-engine paper run --date 2026-11-18
 uv run --no-sync nse-engine paper run --date 2026-11-18 --data-path /path/to/bhavcopy.zip
 ```
 
-`paper run` is idempotent per signal date: a repeated date re-emits the same report and JSON order plan without duplicating ledger rows. It evaluates only setups listed in `config/approved_setups.yaml`, skips setups suspended by the decay monitor, and fills pending orders from the next available session using the shared limit-order model. If no setup fires (including when the approval file is empty), it still writes a report saying so. Reports and order plans go to `reports/paper/`; the ledger is `data/duckdb/paper.sqlite`. Paths and decay thresholds live in `config/paper.yaml`. Every report carries the research disclaimer and the configured data-bias status. No broker or live-order code is involved.
+The verified 2026-11-13 run wrote `reports/paper/paper_2026-11-13.md` and `reports/paper/orders_2026-11-13.json` with zero signals, orders, and fills; a repeat run left both files byte-identical and the ledger at one `runs` row. `paper run` is idempotent per signal date: a repeated date re-emits the same report and JSON order plan without duplicating ledger rows. It evaluates only setups listed in `config/approved_setups.yaml`, skips setups suspended by the decay monitor, and fills pending orders from the next available session using the shared limit-order model. If no setup fires (including when the approval file is empty), it still writes a report saying so. Reports and order plans go to `reports/paper/`; the ledger is `data/duckdb/paper.sqlite`. Paths and decay thresholds live in `config/paper.yaml`. Every report carries the research disclaimer and the configured data-bias status. No broker or live-order code is involved.
 
 ## Project phases
 
 0. Bootstrap: complete.
-1. Data: implementation complete; market history not loaded.
-2. Event study: implementation complete; real-data trials and setup approvals pending.
+1. Data: EOD2 market history loaded and partitioned health checks complete; source remains survivor-biased.
+2. Event study: ETF and stock train/validation studies are complete and all rejected; a seeded random-signal control also fails. Holdout remains locked.
 3. Portfolio backtest: implementation complete; synthetic acceptance passes, real-data run pending.
-4. Paper trading: implementation complete; no-signal behavior verified, real-data run pending approvals.
+4. Paper trading: implementation complete; the optimized real-data no-signal run is verified, and approvals remain empty.
 5. UI and reports: not started.
 6. Broker interface: not started; live orders remain disabled.
 

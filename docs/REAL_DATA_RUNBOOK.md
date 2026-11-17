@@ -24,12 +24,11 @@ The directory importer uses each filename as its symbol when the file has no sym
 
 Open reports/data_health.html. Critical structural errors make data check exit nonzero and must be resolved before research. Review warnings separately, including large one-day moves, missing observed sessions, stale closes, adjusted/raw differences, and year-by-year symbol coverage. EOD2-only imports do not contain an independent raw-close series, so the adjusted/raw comparison cannot verify corporate actions unless raw data has also been imported. Spot-check important split and bonus dates before trusting the adjusted history.
 
-The 2026-11-16 import contained 7,861,421 rows from 3,733 symbols (1995-01-02 through 2026-11-13), with 101,237 incomplete OHLCV rows omitted from 47 files. A 2025–26 slice had zero critical findings, but 46,288 missing-session warnings (many sparse listings), 1,373 repeated-close warnings, and one >100% move for CCAVENUE on 2026-10-19. The full check was stopped after several minutes without a report, so full-history health is unresolved. Do not proceed to studies until the checker scales and the outlier is reviewed.
+The 2026-11-16 import contained 7,861,421 rows from 3,733 symbols (1995-01-02 through 2026-11-13), with 101,237 incomplete required OHLCV rows omitted from 47 files. `reports/import_skipped_rows.csv` shows the breakdown: 51,481 missing open/high/low, 31,804 missing volume, and 17,952 missing open/high/low/volume; no delivery field was a skip reason. The partitioned checker now completes in about 20 seconds and writes `reports/data_health.html` plus row-level `reports/data_health.csv`. It reports zero criticals in the post-2005 tradable scope. The >100% CCAVENUE move on 2026-10-19 was spot-checked: AvenuesAI (formerly Infibeam Avenues) executed a 10:1 share consolidation effective 2026-10-13 and resumed trading on 2026-10-19 under a new ISIN. The old close of ₹13.83 maps to roughly ₹138.30 before later price movement, matching the observed ₹135.65 open. EOD2 did not back-adjust for this consolidation, so returns spanning that date are not usable; exclude those bars or add a corporate-action adjustment before any study that includes them.
 
 ## 3. Verify local assumptions
 
-- Verify every rate in config/costs.yaml against current broker, exchange, and SEBI sources. Add a source and verification date beside each edited rate. Current values are illustrative.
-- Groww's [current pricing page](https://groww.in/pricing) lists a ₹20 / 0.1% brokerage with a ₹5 minimum, NSE transaction charge of 0.00307%, SEBI turnover fee 0.0001%, IPFT 0.0001%, delivery STT of 0.1% on buy and sell, stamp duty 0.015% on buys, and usual DP charges of ₹20 plus GST on sells. The official [NSE charges page](https://www.nseindia.com/static/invest/first-time-investor-sebi-turnover-fees-stt-other-levies) also lists current STT and turnover fees. The engine's current cost schema cannot express the brokerage minimum/maximum or IPFT, and GST currently excludes DP charges. Keep the YAML marked illustrative until that model is extended; do not run studies with it as if verified.
+- Current Groww charges were checked 2026-11-16 and encoded in `config/costs.yaml`: ₹20 / 0.1% brokerage with ₹5 minimum, NSE transaction charge 0.00307%, SEBI 0.0001%, IPFT 0.0001%, delivery STT 0.1% on buy and sell, buy stamp duty 0.015%, and usual male-account DP ₹20 plus GST on a qualifying sale. The model now handles per-order brokerage bounds, IPFT, and GST on DP. See Groww's [pricing page](https://groww.in/pricing) and official [NSE charges page](https://www.nseindia.com/static/invest/first-time-investor-sebi-turnover-fees-stt-other-levies). Slippage remains an assumption; confirm the exact DP/charges against your contract note.
 - Check config/splits.yaml for non-overlapping ranges. The checked-in defaults are train through 2017, validation 2018–2022, and holdout from 2023 onward.
 - Review config/gates.yaml before inspecting performance. Do not relax thresholds after seeing results.
 - Keep holdout locked while choosing hypotheses or parameters.
@@ -48,7 +47,9 @@ uv run --no-sync nse-engine study report
 
 Repeat for the other starter setups. The report shows each gate, including separate train and validation sample-size checks. Before holdout results exist, the holdout and cross-split neighbor gates necessarily fail; study report also writes an empty approved_setups.yaml at this stage. There is no separate gates command.
 
-There is currently no registered random_signal negative-control setup. The supplied workflow's Step 5 therefore needs that setup added and verified before treating a full real-data run as validated. Do not substitute a real setup and call it a negative control. In addition, EOD2's survivorship and corporate-action limitations above must be addressed before interpreting any backtest.
+Run `study run --setup random_signal --split train` as the seeded negative control: it must fail the gates. The declared stock universe ranks the top 200 by trailing 60-session median traded value on each date, with configured price and history filters; whitespace-containing EOD2 index labels are excluded from this stock universe. Results are kill-stage evidence only: because the source is survivor-biased, the report records 0 approvals and 0 provisional passes.
+
+The completed run logged 50 trials: ETF, `pullback_uptrend`, `breakout_52w`, and `vol_contraction` on train and validation, plus `random_signal` on train. All horizons were rejected. The optimized event study processed the 3-year stock timing slice (426,410 rows, 37,541 events across 657 dates) in 6.7 seconds, down from 58.4 seconds. The five earlier errored `pullback_uptrend` train trials remain in the registry as audit records; later successful trials were appended rather than replacing them.
 
 ## 5. Final holdout review
 
@@ -72,3 +73,13 @@ uv run --no-sync nse-engine backtest walk-forward --split validation
 ```
 
 Review the stitched out-of-sample curve, cost-stress table, drawdown depth and duration, and benchmark comparison in each timestamped reports/backtest_* folder. Verify transaction costs before interpreting any result.
+
+## 7. Paper run verification
+
+With no approved setups, a real-data paper run is still a valid no-signal check:
+
+```sh
+uv run --no-sync nse-engine paper run --date 2026-11-13
+```
+
+This produced `reports/paper/paper_2026-11-13.md` and `reports/paper/orders_2026-11-13.json` with zero signals, orders, and fills, and one row in `data/duckdb/paper.sqlite` `runs`. Repeating the command left both files byte-identical and did not add ledger rows. The runner prepares the full 7.86M-row history in about 1.6 seconds and materializes only the sessions it needs (about 0.5 seconds for the signal date) rather than building all 7,886 session dictionaries.
