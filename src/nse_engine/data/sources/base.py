@@ -92,15 +92,39 @@ def normalize_ohlcv(
     dropped_rows = int(invalid.sum())
     if dropped_rows and not drop_invalid_rows:
         raise ValueError("Input has invalid or missing required values")
+    breakdown: list[dict[str, object]] = []
     if dropped_rows:
+        invalid_frame = normalized.loc[invalid, required_values].copy()
+        invalid_frame["year"] = invalid_frame["date"].map(
+            lambda value: value.year if value is not None else "unknown"
+        )
+        invalid_frame["missing_columns"] = (
+            invalid_frame[required_values]
+            .isna()
+            .apply(lambda row: ",".join(row.index[row].tolist()), axis=1)
+        )
+        breakdown = [
+            {
+                "year": str(year),
+                "missing_columns": missing_columns,
+                "rows": int(count),
+            }
+            for (year, missing_columns), count in invalid_frame.groupby(
+                ["year", "missing_columns"], dropna=False
+            )
+            .size()
+            .items()
+        ]
         normalized = normalized.loc[~invalid].copy()
     if normalized.empty:
         if drop_invalid_rows:
             normalized.attrs["invalid_rows_skipped"] = dropped_rows
+            normalized.attrs["invalid_row_breakdown"] = breakdown
             return normalized
         raise ValueError("Input has invalid or missing required values")
     if normalized.duplicated(["symbol", "date"]).any():
         raise ValueError("Input contains duplicate symbol/date rows")
     result = normalized.sort_values(["symbol", "date"], ignore_index=True)
     result.attrs["invalid_rows_skipped"] = dropped_rows
+    result.attrs["invalid_row_breakdown"] = breakdown
     return result

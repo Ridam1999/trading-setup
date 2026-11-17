@@ -22,6 +22,11 @@ class EOD2Source:
             frames = [self._load_file(file_path, drop_invalid_rows=True) for file_path in files]
             invalid_rows = sum(int(frame.attrs.get("invalid_rows_skipped", 0)) for frame in frames)
             invalid_files = sum(frame.empty for frame in frames)
+            invalid_breakdown = [
+                {"file": path.name, **item}
+                for path, frame in zip(files, frames, strict=True)
+                for item in frame.attrs.get("invalid_row_breakdown", [])
+            ]
             frames = [frame for frame in frames if not frame.empty]
             if not frames:
                 raise ValueError(f"No valid OHLCV rows found in EOD2 directory {source_path}")
@@ -31,6 +36,7 @@ class EOD2Source:
             result = combined.sort_values(["symbol", "date"], ignore_index=True)
             result.attrs["invalid_rows_skipped"] = invalid_rows
             result.attrs["invalid_files_skipped"] = invalid_files
+            result.attrs["invalid_row_breakdown"] = invalid_breakdown
             return result
         if not source_path.is_file():
             raise FileNotFoundError(f"EOD2 input does not exist: {source_path}")
@@ -47,4 +53,12 @@ class EOD2Source:
         )
         if not has_symbol:
             frame["symbol"] = path.stem
-        return normalize_ohlcv(frame, source="eod2_adjusted", drop_invalid_rows=drop_invalid_rows)
+        normalized = normalize_ohlcv(
+            frame, source="eod2_adjusted", drop_invalid_rows=drop_invalid_rows
+        )
+        if drop_invalid_rows:
+            normalized.attrs["invalid_row_breakdown"] = [
+                {"file": path.name, **item}
+                for item in normalized.attrs.get("invalid_row_breakdown", [])
+            ]
+        return normalized

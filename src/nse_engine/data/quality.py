@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
@@ -27,6 +28,9 @@ def check_ohlcv(
     stale_close_days: int,
     maximum_adjusted_raw_difference_pct: float | None = None,
     minimum_analysis_date: date | None = None,
+    liquid_symbols: set[str] | None = None,
+    liquid_mask: pd.Series | None = None,
+    excluded_symbol_pattern: str | None = None,
 ) -> QualityReport:
     """Run structural, completeness, outlier, stale-close, and coverage checks."""
     if maximum_return_pct <= 0 or stale_close_days < 1:
@@ -39,13 +43,33 @@ def check_ohlcv(
             {"check": check, "severity": severity, "symbol": symbol, "date": day, "detail": detail}
         )
 
+    def structural_severity(symbol: str, day: object) -> str:
+        """Keep out-of-period and non-equity series visible without blocking research."""
+        excluded_instrument = bool(
+            excluded_symbol_pattern and re.search(excluded_symbol_pattern, symbol)
+        )
+        before_analysis = (
+            minimum_analysis_date is not None
+            and isinstance(day, date)
+            and day < minimum_analysis_date
+        )
+        return "warning" if excluded_instrument or before_analysis else "critical"
+
     if frame.empty:
         record("empty_dataset", "critical", "", None, "No OHLCV observations")
         return QualityReport(pd.DataFrame(findings), pd.DataFrame(), 1)
+    frame = frame.copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce").dt.date
 
     duplicates = frame.loc[frame.duplicated(["symbol", "date"], keep=False)]
     for row in duplicates.itertuples(index=False):
-        record("duplicate_row", "critical", str(row.symbol), row.date, "Duplicate symbol/date key")
+        record(
+            "duplicate_row",
+            structural_severity(str(row.symbol), row.date),
+            str(row.symbol),
+            row.date,
+            "Duplicate symbol/date key",
+        )
 
     invalid_range = frame.loc[
         (frame["high"] < frame["low"])
@@ -57,7 +81,7 @@ def check_ohlcv(
     for row in invalid_range.itertuples(index=False):
         record(
             "invalid_ohlc_range",
-            "critical",
+            structural_severity(str(row.symbol), row.date),
             str(row.symbol),
             row.date,
             "OHLC violates high/low range",
@@ -66,12 +90,22 @@ def check_ohlcv(
     nonpositive = frame.loc[(frame[["open", "high", "low", "close"]] <= 0).any(axis=1)]
     for row in nonpositive.itertuples(index=False):
         record(
-            "nonpositive_price", "critical", str(row.symbol), row.date, "Price is zero or negative"
+            "nonpositive_price",
+            structural_severity(str(row.symbol), row.date),
+            str(row.symbol),
+            row.date,
+            "Price is zero or negative",
         )
 
     zero_volume = frame.loc[frame["volume"] <= 0]
     for row in zero_volume.itertuples(index=False):
-        record("zero_volume", "critical", str(row.symbol), row.date, "Volume is zero or negative")
+        record(
+            "zero_volume",
+            structural_severity(str(row.symbol), row.date),
+            str(row.symbol),
+            row.date,
+            "Volume is zero or negative",
+        )
 
     if maximum_adjusted_raw_difference_pct is not None:
         raw_close = pd.to_numeric(frame["close_raw"], errors="coerce")
@@ -100,45 +134,57 @@ def check_ohlcv(
                 f"{len(group)} observations before {minimum_analysis_date} are lower quality",
             )
 
-    observed_dates = set(frame["date"])
-    trading_dates = set(calendar.loc[calendar["is_trading_day"], "date"]) & observed_dates
-    for symbol, group in frame.sort_values("date").groupby("symbol", sort=True):
-        observed_dates = set(group["date"])
-        expected_dates = {
-            day for day in trading_dates if min(observed_dates) <= day <= max(observed_dates)
-        }
-        for missing_day in sorted(expected_dates - observed_dates):
+    ordered = frame.sort_values(["symbol", "date"]).copy()
+    by_symbol = ordered.groupby("symbol", sort=False)
+    pct_returns = by_symbol["close"].pct_change().abs().mul(100)
+    for row in ordered.loc[pct_returns > maximum_return_pct].itertuples(index=False):
+        record(
+            "large_single_day_return",
+            "warning",
+            str(row.symbol),
+            row.date,
+            "Review possible unadjusted action",
+        )
+
+    same_close = ordered["close"].eq(by_symbol["close"].shift())
+    repeated = (
+        same_close.groupby(ordered["symbol"], sort=False)
+        .rolling(stale_close_days, min_periods=stale_close_days)
+        .sum()
+    )
+    repeated.index = repeated.index.droplevel(0)
+    stale_mask = repeated.sort_index().ge(stale_close_days)
+    if liquid_mask is not None:
+        stale_mask &= liquid_mask.reindex(ordered.index, fill_value=False)
+    for row in ordered.loc[stale_mask].itertuples(index=False):
+        record(
+            "stale_repeated_close",
+            "warning",
+            str(row.symbol),
+            row.date,
+            "Repeated close across configured window",
+        )
+
+    observed_market_dates = set(frame["date"])
+    trading_dates = sorted(
+        set(calendar.loc[calendar["is_trading_day"], "date"]) & observed_market_dates
+    )
+    selected_symbols = (
+        liquid_symbols if liquid_symbols is not None else set(frame["symbol"].astype(str).unique())
+    )
+    for symbol, group in ordered.loc[ordered["symbol"].isin(selected_symbols)].groupby(
+        "symbol", sort=False
+    ):
+        symbol_dates = set(group["date"])
+        start_day, end_day = min(symbol_dates), max(symbol_dates)
+        expected_dates = (day for day in trading_dates if start_day <= day <= end_day)
+        for missing_day in (day for day in expected_dates if day not in symbol_dates):
             record(
                 "missing_trading_day",
                 "warning",
                 str(symbol),
                 missing_day,
-                "No row on observed market date",
-            )
-        pct_returns = group["close"].pct_change().abs().mul(100)
-        large_moves = group.loc[pct_returns > maximum_return_pct]
-        for row in large_moves.itertuples(index=False):
-            record(
-                "large_single_day_return",
-                "warning",
-                str(symbol),
-                row.date,
-                "Review possible unadjusted action",
-            )
-        stale = (
-            group["close"]
-            .eq(group["close"].shift())
-            .rolling(stale_close_days)
-            .sum()
-            .ge(stale_close_days)
-        )
-        for row in group.loc[stale].itertuples(index=False):
-            record(
-                "stale_repeated_close",
-                "warning",
-                str(symbol),
-                row.date,
-                "Repeated close across configured window",
+                "No row on observed market date; symbol met the liquidity screen",
             )
 
     coverage = (
@@ -156,7 +202,12 @@ def check_ohlcv(
     return QualityReport(findings_frame, coverage, critical)
 
 
-def write_health_report(report: QualityReport, path: Path, survivorship_biased: bool) -> None:
+def write_health_report(
+    report: QualityReport,
+    path: Path,
+    survivorship_biased: bool,
+    data_bias_status: str = "SURVIVOR_BIASED",
+) -> None:
     """Write a standalone HTML report with the project disclaimer and bias status."""
     path.parent.mkdir(parents=True, exist_ok=True)
     status = (
@@ -164,7 +215,20 @@ def write_health_report(report: QualityReport, path: Path, survivorship_biased: 
         if survivorship_biased
         else "Point-in-time universe"
     )
-    findings_html = report.findings.to_html(index=False, border=0, escape=True)
+    summary = (
+        (
+            report.findings.groupby(["severity", "check"], dropna=False)
+            .size()
+            .rename("count")
+            .reset_index()
+            .sort_values(["severity", "count"], ascending=[True, False])
+        )
+        if not report.findings.empty
+        else pd.DataFrame(columns=["severity", "check", "count"])
+    )
+    findings_html = summary.to_html(index=False, border=0, escape=True)
+    details_path = path.with_suffix(".csv")
+    report.findings.to_csv(details_path, index=False)
     coverage_html = report.coverage.to_html(index=False, border=0, escape=True)
     page = (
         "<!doctype html><html><head><meta charset='utf-8'><title>Data health</title>"
@@ -173,7 +237,10 @@ def write_health_report(report: QualityReport, path: Path, survivorship_biased: 
         "th,td{border:1px solid #ddd;padding:.4rem;text-align:left}"
         "th{background:#f3f3f3}</style></head><body><h1>Data health</h1>"
         f"<p>{DISCLAIMER}</p><p>Survivorship-bias status: {status}</p>"
-        f"<p>Critical failures: {report.critical_failures}</p><h2>Findings</h2>{findings_html}"
+        f"<p>Data-bias status: {data_bias_status}</p>"
+        f"<p>Critical failures: {report.critical_failures}</p>"
+        f"<h2>Findings ranked by severity</h2>{findings_html}"
+        f"<p>Row-level details: {details_path.name}</p>"
         f"<h2>Annual coverage</h2>{coverage_html}</body></html>"
     )
     path.write_text(page, encoding="utf-8")

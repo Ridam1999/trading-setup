@@ -105,8 +105,9 @@ def test_cli_refuses_holdout_before_reading_market_data(tmp_path: Path, monkeypa
         encoding="utf-8",
     )
     (config_dir / "costs.yaml").write_text(
-        "delivery_equity: {brokerage_pct: 0, brokerage_flat_per_order: 0, stt_pct_buy: 0, "
-        "stt_pct_sell: 0, exchange_txn_pct: 0, sebi_fee_pct: 0, stamp_duty_pct_buy: 0, "
+        "delivery_equity: {brokerage_pct: 0, brokerage_min_per_order: 0, "
+        "brokerage_max_per_order: 0, stt_pct_buy: 0, stt_pct_sell: 0, "
+        "exchange_txn_pct: 0, sebi_fee_pct: 0, ipft_fee_pct: 0, stamp_duty_pct_buy: 0, "
         "gst_pct: 0, dp_charge_per_sell_scrip: 0}\nslippage_bps: 0\nstress_multipliers: [1.0]\n",
         encoding="utf-8",
     )

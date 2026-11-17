@@ -1,3 +1,10 @@
 name: nse_equities
 symbols: []
 survivorship_biased: true
+point_in_time_liquidity:
+  top_n: 200
+  trailing_days: 60
+  minimum_price: 20
+  minimum_history: 60
+  # EOD2 index series use names with spaces; they are not tradable stock symbols.
+  excluded_symbol_pattern: '\s'
