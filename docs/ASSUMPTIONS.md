@@ -62,11 +62,12 @@
 - The regime filter reuses `regime_labels`: the benchmark must be above its configured long SMA and outside the high-volatility tercile. Regime labels use expanding quantiles and trailing windows, so no future benchmark bar enters a signal at close of day t.
 - Sweep grids for both setups are the small predeclared lists in their YAML files. No threshold was changed after seeing results, holdout stays locked, and all trials are appended to the existing registry.
 
-# Factor study pre-registration draft
+# Factor study pre-registration
 
-- `docs/FACTOR_STUDY_PREREG.md` is a **DRAFT** written on 2026-11-18 in response to "what should be next?". It records the methodology agreed before any data work: cross-sectional hypotheses, point-in-time delisted-inclusive universe, long-only top-basket equal-weight construction with the existing causal fill model, announcement-dated fundamentals with a restatement-leak fixture test, equal-weight-universe and NIFTYBEES benchmarks, the locked gate strictness, and a stop rule with an owner-set tuition budget.
-- The owner-decision slots (hypothesis definitions and rationale, universe size, basket cutoff, rebalance frequency, turnover cap, and budget) are deliberately left unfilled rather than guessed. Pre-registration commitments must be the owner's; no study code or data purchase follows until they are filled and the document is committed.
-- The draft is a planning artifact only. It does not start the factor study phase, write study code, contact vendors, purchase data, or change `approved_setups.yaml`, `data_bias_status`, or holdout state. The closed daily-price/volume verdict is unchanged.
+- `docs/FACTOR_STUDY_PREREG.md` was written on 2026-11-18 in response to "what should be next?" and committed as a frozen design before any data access or study code. It records cross-sectional hypotheses, a point-in-time delisted-inclusive universe, long-only top-quintile equal-weight construction with the existing causal fill model, announcement-dated fundamentals with a restatement-leak fixture test, equal-weight-universe and NIFTYBEES benchmarks, the locked gate strictness, and a stop rule.
+- "Go next" was interpreted as owner authorization to fill the previously unfilled decision slots with conservative defaults: value (earnings yield), quality (ROE), momentum (12-1 month), and their equal-weight composite; top-200 universe, top quintile, monthly rebalance, 50% one-way turnover cap, one-session announcement lag, one-session signal-to-order lag, and a ₹0 tuition budget. The zero budget repeats the owner's earlier explicit answer that no personal data budget exists.
+- `config/factor.yaml` holds every new factor-study threshold. Existing cost and gate thresholds remain in `config/costs.yaml` and `config/gates.yaml`. A guard test checks that no owner-decision placeholders remain and that both the signal-to-order lag and announcement lag are at least one session.
+- This commit freezes design only. It does not start data acquisition, vendor contact, study code, a factor backtest, or any change to `approved_setups.yaml`, `data_bias_status`, or holdout state. The closed daily-price/volume verdict is unchanged. If the owner later changes any frozen slot, the pre-registration must be amended before data access and any subsequent study re-registered.
 
 # Remaining phases (5 and 6)
 

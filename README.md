@@ -138,6 +138,12 @@ groww = GrowwBroker(config)                                # every method raises
 
 `GrowwBroker` is a **disabled skeleton**: it opens no network connection, and every order, query, and price method raises `LiveTradingDisabled` even if `DRY_RUN=false` and the `LIVE_CONFIRM` environment variable are set. No real order submission exists. Credential variable **names** are configured in `config/broker.yaml` and documented in `.env.example`; no credentials are stored in the repo. Setting the live flags cannot enable the skeleton.
 
+### Next research program: factor-study pre-registration
+
+All implementation phases are complete. The next research design is frozen in [docs/FACTOR_STUDY_PREREG.md](docs/FACTOR_STUDY_PREREG.md) and [config/factor.yaml](config/factor.yaml): four cross-sectional hypotheses (value, quality, 12-1 momentum, and a composite), a point-in-time delisted-inclusive top-200 universe, top-quintile equal-weight monthly rebalancing with one-session signal-to-order lag, announcement-dated fundamentals with a restatement-leak fixture requirement, the existing strict gates with 2.0x cost stress, and a ₹0 tuition budget.
+
+This is design only. There is no factor-study CLI, no data acquisition, no vendor contact, no approval, and no holdout access. `make check` includes guard tests that reject owner-decision placeholders and verify that signal/order and announcement lags are at least one session. Changing any frozen slot after data access invalidates the study and requires a new pre-registration.
+
 ## Project phases
 
 0. Bootstrap: complete.
@@ -147,5 +153,6 @@ groww = GrowwBroker(config)                                # every method raises
 4. Paper trading: implementation complete; the optimized real-data no-signal run is verified, and approvals remain empty.
 5. UI and reports: complete with a seven-page read-only Streamlit dashboard and reusable Plotly/HTML charts; `make ui` launches it.
 6. Broker interface: complete with live trading disabled; Groww order methods always raise `LiveTradingDisabled`.
+7. Next research program: factor study pre-registered and frozen with a ₹0 budget; no study code or data access has started.
 
 See [docs/STATUS.md](docs/STATUS.md) for verification and manual prerequisites, [docs/REAL_DATA_RUNBOOK.md](docs/REAL_DATA_RUNBOOK.md) for the adapted EOD2 workflow, and [docs/SPEC.md](docs/SPEC.md) for requirements and acceptance criteria.

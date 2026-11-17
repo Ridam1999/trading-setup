@@ -44,3 +44,10 @@
 - All broker limits (dry-run flag, rate bursts/refills, batch size, kill switch, daily loss cap, max order size, max positions, and credential environment-variable names) live in `config/broker.yaml`. No threshold is hard-coded in an adapter.
 - `GrowwBroker` is a skeleton with no network calls. Every order, query, and price method raises `LiveTradingDisabled` unconditionally; even `DRY_RUN=false` plus `LIVE_CONFIRM` cannot enable a live call path. Real order placement remains a separate, explicitly authorised change.
 - `FakeBroker` and `PaperBroker` satisfy the same protocol for tests and ledger-backed simulation, and `PaperBroker.reconcile()` compares simulated positions with the durable ledger. No live endpoint is reachable from either.
+
+# Factor-study pre-registration decision (2026-11-18)
+
+- "Go next" was interpreted as authorization to freeze the factor-study design before any data access, not as authorization to buy data or write execution code.
+- Owner slots were filled with conservative defaults: value as trailing earnings yield, quality as ROE, momentum as 12-1 month return, and their equal-weight z-score composite; top-200 delisted-inclusive universe; top quintile; monthly rebalance; 50% one-way turnover cap; one-session signal-to-order lag; one-session fundamental announcement lag; and a ₹0 tuition budget carried forward from the owner's earlier answer.
+- Every factor threshold is in `config/factor.yaml`; shared gates and costs remain in `config/gates.yaml` and `config/costs.yaml`. A guard test rejects `[OWNER DECISION]` placeholders and enforces positive forward lags and PIT requirements.
+- No point-in-time data or announcement-dated fundamentals exist in the repo, so no study may run and no vendor may be contacted. Any post-data change to a frozen slot invalidates the study and requires a new pre-registration.
