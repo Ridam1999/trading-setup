@@ -71,7 +71,7 @@ def assess_readiness(
 ) -> ReadinessReport:
     """Check design integrity, input availability, causal lags, and holdout state."""
     prices = data.pit_prices_dir
-    announcements = data.announcements_path
+    fundamentals = data.fundamentals_path
     membership = data.membership_path
     trial_registry = registry or TrialRegistry(load_study_settings().trial_registry_path)
 
@@ -87,9 +87,9 @@ def assess_readiness(
             f"Missing point-in-time price directory: {prices}",
         ),
         ReadinessCheck(
-            "announcements_path",
-            announcements is not None and announcements.is_file(),
-            f"Missing announcement-dated fundamentals file: {announcements}",
+            "fundamentals_path",
+            fundamentals is not None and fundamentals.is_file(),
+            f"Missing announcement-dated fundamentals file: {fundamentals}",
         ),
         ReadinessCheck(
             "membership_path",

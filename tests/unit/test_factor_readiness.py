@@ -51,9 +51,7 @@ def test_missing_pit_inputs_block_readiness(tmp_path: Path) -> None:
     data = FactorDataConfig()
     report = assess_readiness(config, data, PREREG_PATH, TrialRegistry(tmp_path / "trials.sqlite"))
     assert report.ready is False
-    assert {"pit_prices_dir", "announcements_path", "membership_path"}.issubset(
-        set(report.blockers)
-    )
+    assert {"pit_prices_dir", "fundamentals_path", "membership_path"}.issubset(set(report.blockers))
 
 
 def test_supplied_pit_inputs_pass_readiness(tmp_path: Path) -> None:
@@ -61,15 +59,15 @@ def test_supplied_pit_inputs_pass_readiness(tmp_path: Path) -> None:
     config = load_factor_config(CONFIG_DIR)
     prices = tmp_path / "prices"
     prices.mkdir()
-    announcements = tmp_path / "announcements.csv"
-    announcements.write_text("symbol,date,eps\n", encoding="utf-8")
+    fundamentals = tmp_path / "fundamentals.csv"
+    fundamentals.write_text("symbol,date,eps\n", encoding="utf-8")
     membership = tmp_path / "membership.csv"
     membership.write_text("date,symbol\n", encoding="utf-8")
     prereg = tmp_path / "prereg.md"
     prereg.write_bytes(PREREG_PATH.read_bytes())
     data = FactorDataConfig(
         pit_prices_dir=prices,
-        announcements_path=announcements,
+        fundamentals_path=fundamentals,
         membership_path=membership,
     )
     report = assess_readiness(config, data, prereg, TrialRegistry(tmp_path / "trials.sqlite"))

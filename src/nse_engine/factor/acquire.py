@@ -70,6 +70,13 @@ def bhavcopy_destination(directory: Path, day: date, settings: AcquisitionConfig
     return directory / f"year={day.year}" / f"date={day.isoformat()}" / f"bhavcopy{suffix}"
 
 
+def filing_path(settings: AcquisitionConfig, symbol: str, announced: date, url: str) -> Path:
+    """Return the deterministic local path for one linked filing PDF."""
+    label = pd.to_datetime(announced).strftime("%Y-%m-%d")
+    digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
+    return settings.filing_dir / symbol / f"{label}_{digest}.pdf"
+
+
 def _session(settings: AcquisitionConfig) -> httpx.Client:
     """Open a client with NSE cookies established by the configured session URL."""
     client = httpx.Client(headers=HEADERS, timeout=settings.timeout_seconds, follow_redirects=True)
@@ -301,10 +308,8 @@ def download_filing_pdfs(
             if not isinstance(url, str) or not url:
                 continue
             symbol = str(getattr(row, "symbol", "UNKNOWN"))
-            announced = row.announcement_date
-            label = pd.to_datetime(announced).strftime("%Y-%m-%d")
-            digest = hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
-            path = settings.filing_dir / symbol / f"{label}_{digest}.pdf"
+            announced = pd.to_datetime(row.announcement_date).date()
+            path = filing_path(settings, symbol, announced, url)
             if path.is_file() and path.stat().st_size > 0:
                 continue
             content = _fetch(session, url, settings)

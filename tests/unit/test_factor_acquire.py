@@ -251,5 +251,5 @@ def test_factor_acquire_cli_help_lists_all_commands() -> None:
     """The CLI exposes every acquisition step without invoking the network."""
     result = CliRunner().invoke(app, ["factor", "acquire", "--help"])
     assert result.exit_code == 0
-    for command in ("prices", "membership", "announcements", "filings"):
+    for command in ("prices", "membership", "announcements", "filings", "fundamentals"):
         assert command in result.output

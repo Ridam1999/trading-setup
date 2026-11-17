@@ -112,6 +112,47 @@ class FactorConfig(BaseModel):
         return self
 
 
+FUNDAMENTAL_FIELDS: tuple[str, ...] = (
+    "trailing_12m_diluted_eps",
+    "trailing_12m_net_profit",
+    "average_shareholders_equity",
+)
+
+
+class FundamentalFieldConfig(BaseModel):
+    """Label patterns and unit for one pre-registered fundamental field."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    labels: list[str] = Field(min_length=1)
+    unit: Literal["rupees", "crore"]
+
+    @field_validator("labels")
+    @classmethod
+    def non_empty_labels(cls, values: list[str]) -> list[str]:
+        """Reject blank label patterns."""
+        if any(not value.strip() for value in values):
+            raise ValueError("Fundamental label patterns must be non-empty")
+        return values
+
+
+class FundamentalExtractionConfig(BaseModel):
+    """Config-driven extraction rules for announcement-dated fundamentals."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fields: dict[str, FundamentalFieldConfig]
+    crore_multiplier: float = Field(gt=0)
+    label_value_max_chars: int = Field(ge=1)
+
+    @model_validator(mode="after")
+    def check_fields(self) -> FundamentalExtractionConfig:
+        """Require exactly the three frozen fundamental fields."""
+        if set(self.fields) != set(FUNDAMENTAL_FIELDS):
+            raise ValueError("Fundamental fields must match the frozen study design")
+        return self
+
+
 class AcquisitionConfig(BaseModel):
     """Public acquisition settings for the PIT input bot."""
 
@@ -157,9 +198,11 @@ class FactorDataConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     pit_prices_dir: Path | None = None
-    announcements_path: Path | None = None
+    announcement_index_path: Path | None = None
+    fundamentals_path: Path | None = None
     membership_path: Path | None = None
     acquisition: AcquisitionConfig | None = None
+    fundamentals: FundamentalExtractionConfig | None = None
 
 
 def _load_yaml(path: Path) -> dict[str, object]:

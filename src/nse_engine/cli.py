@@ -61,9 +61,11 @@ from nse_engine.factor.acquire import (
 from nse_engine.factor.config import (
     AcquisitionConfig,
     FactorDataConfig,
+    FundamentalExtractionConfig,
     load_factor_config,
     load_factor_data_config,
 )
+from nse_engine.factor.fundamentals import parse_filings
 from nse_engine.factor.readiness import DISCLAIMER as FACTOR_DISCLAIMER
 from nse_engine.factor.readiness import assess_readiness
 from nse_engine.logging_config import configure_logging
@@ -168,6 +170,16 @@ def _require_acquisition(data: FactorDataConfig) -> AcquisitionConfig:
     return data.acquisition
 
 
+def _require_fundamentals(data: FactorDataConfig) -> FundamentalExtractionConfig:
+    """Return the configured extraction rules or fail before parsing files."""
+    if data.fundamentals is None:
+        typer.echo(
+            "Fundamental extraction settings are missing from config/factor_data.yaml.", err=True
+        )
+        raise typer.Exit(code=1)
+    return data.fundamentals
+
+
 def _require_data_path(value: Path | None, label: str) -> Path:
     """Return a configured data path or fail before any network call."""
     if value is None:
@@ -226,7 +238,7 @@ def acquire_announcements(
     """Download public announcement metadata into an appendable Parquet index."""
     data = load_factor_data_config(directory)
     settings = _require_acquisition(data)
-    output_path = _require_data_path(data.announcements_path, "announcements_path")
+    output_path = _require_data_path(data.announcement_index_path, "announcement_index_path")
     summary = download_announcements(settings, output_path)
     typer.echo(
         json.dumps(
@@ -250,9 +262,38 @@ def acquire_filings(
     """Download linked filing PDFs listed in the announcement index."""
     data = load_factor_data_config(directory)
     settings = _require_acquisition(data)
-    announcements_path = _require_data_path(data.announcements_path, "announcements_path")
-    saved = download_filing_pdfs(announcements_path, settings)
+    index_path = _require_data_path(data.announcement_index_path, "announcement_index_path")
+    saved = download_filing_pdfs(index_path, settings)
     typer.echo(json.dumps({"saved": saved, "filing_dir": str(settings.filing_dir)}, indent=2))
+    typer.echo(ACQUIRE_DISCLAIMER)
+
+
+@acquire_app.command("fundamentals")
+def acquire_fundamentals(
+    directory: Annotated[
+        Path | None, typer.Option("--directory", help="YAML config directory.")
+    ] = None,
+) -> None:
+    """Append announcement-dated fundamentals parsed from downloaded filings."""
+    data = load_factor_data_config(directory)
+    settings = _require_acquisition(data)
+    rules = _require_fundamentals(data)
+    index_path = _require_data_path(data.announcement_index_path, "announcement_index_path")
+    output_path = _require_data_path(data.fundamentals_path, "fundamentals_path")
+    summary = parse_filings(index_path, settings, rules, output_path)
+    typer.echo(
+        json.dumps(
+            {
+                "files_read": summary.files_read,
+                "rows_added": summary.rows_added,
+                "rows_already_present": summary.rows_already_present,
+                "missing_files": summary.missing_files,
+                "unparsed_files": summary.unparsed_files,
+                "output_path": str(summary.output_path),
+            },
+            indent=2,
+        )
+    )
     typer.echo(ACQUIRE_DISCLAIMER)
 
 
