@@ -31,6 +31,13 @@
 - **Registry:** the research registry holds 280 append-only trials; the isolated control registry holds 10. No rows were updated or deleted.
 - Research output, not advice; no guarantee of profit.
 
+# Phase 5 decision (2026-11-18)
+
+- The dashboard is a read-only view over existing artifacts. It does not rerun studies, create orders, write approvals, append trials, or unlock the holdout.
+- Every page renders the configured data-bias status and the research disclaimer, and the sidebar caption states that the holdout is locked and live orders are disabled. This makes a survivor-biased chart hard to mistake for tradable evidence.
+- The invalid look-ahead positive control is tagged from its event filename and excluded from event charts and trial tables by default. It remains in its isolated registry for plumbing evidence only.
+- Chart builders are pure functions and standalone HTML reports repeat the disclaimer and bias banner. Display bounds live in `config/ui.yaml`; research and cost thresholds stay in their existing YAML files.
+
 # Phase 6 decision (2026-11-18)
 
 - The broker layer is interface-first and live-off: strategy code depends only on the `Broker` protocol and value types in `nse_engine.broker.base`, never a concrete adapter.

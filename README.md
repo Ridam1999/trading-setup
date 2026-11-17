@@ -102,6 +102,19 @@ uv run --no-sync nse-engine paper run --date 2026-11-18 --data-path /path/to/bha
 
 The verified 2026-11-13 run wrote `reports/paper/paper_2026-11-13.md` and `reports/paper/orders_2026-11-13.json` with zero signals, orders, and fills; a repeat run left both files byte-identical and the ledger at one `runs` row. `paper run` is idempotent per signal date: a repeated date re-emits the same report and JSON order plan without duplicating ledger rows. It evaluates only setups listed in `config/approved_setups.yaml`, skips setups suspended by the decay monitor, and fills pending orders from the next available session using the shared limit-order model. If no setup fires (including when the approval file is empty), it still writes a report saying so. Reports and order plans go to `reports/paper/`; the ledger is `data/duckdb/paper.sqlite`. Paths and decay thresholds live in `config/paper.yaml`. Every report carries the research disclaimer and the configured data-bias status. No broker or live-order code is involved.
 
+### Phase 5: UI and reports
+
+Launch the local dashboard with:
+
+```bash
+make ui
+# equivalent: uv run --no-sync streamlit run src/nse_engine/ui/app.py
+```
+
+The Streamlit app has seven read-only pages: Data health, Setup explorer, Event-study results, Backtest, Walk-forward, Paper ledger, and Trial registry. Every page shows the configured data-bias status (`SURVIVOR_BIASED` in this repo), a locked-holdout/no-live-orders caption, and the required disclaimer. The sidebar selects the page; no page creates signals, orders, approvals, or trials.
+
+Charts are built in `nse_engine.reporting.charts` and are also reusable from standalone HTML via `write_chart_report` in `nse_engine.reporting.html_report`. Chart/report helpers are pure functions: they format existing artifacts and never recompute research statistics. The UI reads only existing stores — `reports/data_health.csv`, adjusted OHLCV Parquet, saved event-study Parquet, immutable `reports/backtest_*` folders, `data/duckdb/paper.sqlite`, and the append-only trial registry. The invalid look-ahead positive control is excluded from event charts and trial tables by default. Display limits (default symbol, bar range, table rows, and event sample size) live in `config/ui.yaml`; gate, cost, and research thresholds remain in their own YAML files.
+
 ### Phase 6: broker interface (live disabled)
 
 The broker layer is a set of Python types, not a CLI workflow:
@@ -132,7 +145,7 @@ groww = GrowwBroker(config)                                # every method raises
 2. Event study: free-data research closed out; all eight setups (ETF and stock, plus a seeded random-signal control) rejected across 100 gate groups, with 0 provisional passes and 0 approvals. An isolated cheating positive control validated real-data wiring. Holdout remains locked and `SURVIVOR_BIASED` is unchanged.
 3. Portfolio backtest: implementation complete; synthetic acceptance passes, real-data run pending.
 4. Paper trading: implementation complete; the optimized real-data no-signal run is verified, and approvals remain empty.
-5. UI and reports: not started.
+5. UI and reports: complete with a seven-page read-only Streamlit dashboard and reusable Plotly/HTML charts; `make ui` launches it.
 6. Broker interface: complete with live trading disabled; Groww order methods always raise `LiveTradingDisabled`.
 
 See [docs/STATUS.md](docs/STATUS.md) for verification and manual prerequisites, [docs/REAL_DATA_RUNBOOK.md](docs/REAL_DATA_RUNBOOK.md) for the adapted EOD2 workflow, and [docs/SPEC.md](docs/SPEC.md) for requirements and acceptance criteria.
