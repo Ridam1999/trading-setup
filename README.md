@@ -142,7 +142,16 @@ groww = GrowwBroker(config)                                # every method raises
 
 All implementation phases are complete. The next research design is frozen in [docs/FACTOR_STUDY_PREREG.md](docs/FACTOR_STUDY_PREREG.md) and [config/factor.yaml](config/factor.yaml): four cross-sectional hypotheses (value, quality, 12-1 momentum, and a composite), a point-in-time delisted-inclusive top-200 universe, top-quintile equal-weight monthly rebalancing with one-session signal-to-order lag, announcement-dated fundamentals with a restatement-leak fixture requirement, the existing strict gates with 2.0x cost stress, and a ₹0 tuition budget.
 
-This is design only. There is no factor-study CLI, no data acquisition, no vendor contact, no approval, and no holdout access. `make check` includes guard tests that reject owner-decision placeholders and verify that signal/order and announcement lags are at least one session. Changing any frozen slot after data access invalidates the study and requires a new pre-registration.
+A readiness gate is available without running a study:
+
+```bash
+make factor
+# equivalent: uv run --no-sync nse-engine factor check
+```
+
+It validates `config/factor.yaml`, verifies that `docs/FACTOR_STUDY_PREREG.md` still matches its configured SHA-256 hash, checks the point-in-time input paths in `config/factor_data.yaml`, confirms causal lags and PIT requirements, and checks that the registry still has no holdout trials or unlocks. With the checked-in null paths it exits non-zero and lists the missing inputs. It computes no factors, writes no trials, places no orders, and reads no holdout data.
+
+There is no factor-study execution CLI, no data acquisition, no vendor contact, no approval, and no holdout access. `make check` includes guard tests that reject owner-decision placeholders, verify that signal/order and announcement lags are at least one session, and exercise the ready and blocked readiness paths. Changing any frozen slot after data access invalidates the study and requires a new pre-registration.
 
 ## Project phases
 

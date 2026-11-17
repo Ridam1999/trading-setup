@@ -51,3 +51,9 @@
 - Owner slots were filled with conservative defaults: value as trailing earnings yield, quality as ROE, momentum as 12-1 month return, and their equal-weight z-score composite; top-200 delisted-inclusive universe; top quintile; monthly rebalance; 50% one-way turnover cap; one-session signal-to-order lag; one-session fundamental announcement lag; and a ₹0 tuition budget carried forward from the owner's earlier answer.
 - Every factor threshold is in `config/factor.yaml`; shared gates and costs remain in `config/gates.yaml` and `config/costs.yaml`. A guard test rejects `[OWNER DECISION]` placeholders and enforces positive forward lags and PIT requirements.
 - No point-in-time data or announcement-dated fundamentals exist in the repo, so no study may run and no vendor may be contacted. Any post-data change to a frozen slot invalidates the study and requires a new pre-registration.
+
+# Factor-study readiness decision (2026-11-18)
+
+- The next bounded step is a readiness gate, not an execution engine. It verifies the frozen design hash, the presence of PIT inputs, causal lags, delisted-inclusive requirements, and locked holdout state, then refuses to proceed with a non-zero exit when any condition fails.
+- `config/factor_data.yaml` keeps PIT price, announcement, and membership paths null. `make factor` therefore blocks by design; filling those paths is a separate owner data decision and must not be done with survivor-biased EOD2 files.
+- The readiness check is read-only: it does not compute factors, append trials, write approvals, unlock holdout, or contact a broker or vendor. The pre-registration hash guards against post-data edits to the frozen design.

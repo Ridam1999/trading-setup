@@ -69,6 +69,13 @@
 - `config/factor.yaml` holds every new factor-study threshold. Existing cost and gate thresholds remain in `config/costs.yaml` and `config/gates.yaml`. A guard test checks that no owner-decision placeholders remain and that both the signal-to-order lag and announcement lag are at least one session.
 - This commit freezes design only. It does not start data acquisition, vendor contact, study code, a factor backtest, or any change to `approved_setups.yaml`, `data_bias_status`, or holdout state. The closed daily-price/volume verdict is unchanged. If the owner later changes any frozen slot, the pre-registration must be amended before data access and any subsequent study re-registered.
 
+# Factor-study readiness gate
+
+- The following "go next" was interpreted as authorization to add the readiness layer only: validated factor config, a SHA-256 hash of the frozen document, null point-in-time input paths, and a `factor check` CLI that refuses execution until those inputs exist.
+- `config/factor_data.yaml` uses null paths for PIT prices, announcement-dated fundamentals, and membership. They are intentionally unfilled because no such data is in the repo and the ₹0 budget forbids vendor contact.
+- `nse-engine factor check` only reads config, checks file existence, verifies the frozen hash, and reads the registry for holdout state. It computes no factors, places no orders, writes no trials, and does not access holdout data.
+- The readiness gate is not a factor study run. Actual execution still requires a separate owner decision to supply PIT data, plus a re-verification that the frozen hash still matches before any code consumes it.
+
 # Remaining phases (5 and 6)
 
 - "Complete the pending phases first" is interpreted as Phase 5 (UI and reports) and Phase 6 (broker interface, live disabled), the two phases marked Not started in `docs/STATUS.md`. Phase 3's real-data portfolio run remains blocked because `config/approved_setups.yaml` is empty and holdout is locked; it is a research outcome, not an implementation gap, and is not fabricated.
