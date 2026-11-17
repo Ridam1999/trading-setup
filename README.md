@@ -61,6 +61,22 @@ Provisional mode is train/validation only: it rejects `--split holdout`, screens
 
 Studies append every setup/parameter/split/horizon result to the SQLite registry at `data/duckdb/trials.sqlite` and save per-event Parquet files in `reports/study_events/`. The report applies Benjamini-Hochberg correction across logged trials and evaluates configured approval gates. `random_signal` is a seeded negative control with no price dependence; it must fail the gates. Holdout data stays locked; accessing it requires `--unlock-holdout`, which adds an audit row to the registry. With `research.data_bias_status: SURVIVOR_BIASED`, a statistical pass is provisional only and cannot populate approved_setups.yaml.
 
+#### Real-data positive control (wiring check)
+
+To prove that the real data, point-in-time universe, fills, costs, and statistics actually detect a known edge, run the deliberately invalid look-ahead control:
+
+```sh
+uv run --no-sync nse-engine study positive-control
+```
+
+The control signals when tomorrow's close is higher than today's close, so it is guaranteed to leak. It passed every gate at all five horizons (Benjamini–Hochberg p values from 0 to ~6.8e-110). A pass is **plumbing evidence only, never research evidence**. The control lives outside `SETUP_REGISTRY`, is defined in `config/controls/__control_lookahead__.yaml`, runs on train/validation only, and writes to a separate append-only registry at `data/duckdb/controls.sqlite`. Its rows are tagged `control: true` and are filtered out of both study reports and multiple-testing totals, so they can never produce a `provisional_pass` or enter `approved_setups.yaml`.
+
+#### Free-data close-out
+
+The free-data research stage is closed with **no approved setup**: all eight declared hypotheses were rejected across 100 setup/parameter/horizon gate groups on train and validation with the top-100 point-in-time liquidity universe and 2x cost stress. The research registry holds 280 append-only trials and the isolated control registry holds 10. Holdout remains locked, `config/approved_setups.yaml` stays `approved_setups: []`, and `config/research.yaml` stays `data_bias_status: SURVIVOR_BIASED`.
+
+This is a verdict on **generic daily price and volume rules on survivor-biased data**. It does not prove that no edge exists elsewhere (for example, fundamental or cross-sectional factors, intraday data, options, or point-in-time/delisted-inclusive/total-return datasets). Because nothing survived, no dataset purchase or build is justified. See [docs/DECISIONS.md](docs/DECISIONS.md) for the full decision. Research output, not advice; no guarantee of profit.
+
 ### Phase 3: portfolio backtests
 
 Run an approved setup portfolio on a fixed, non-holdout split:
@@ -90,7 +106,7 @@ The verified 2026-11-13 run wrote `reports/paper/paper_2026-11-13.md` and `repor
 
 0. Bootstrap: complete.
 1. Data: EOD2 market history loaded with partitioned health checks; PIT import, corporate-action adjustment, and verification commands added. Source remains survivor-biased until licensed PIT data is supplied and reviewed.
-2. Event study: free-data provisional kill stage complete on train/validation; all eight setups (ETF and stock, plus a seeded random-signal control) rejected across 100 gate groups, with 0 provisional passes and 0 approvals. Holdout remains locked and `SURVIVOR_BIASED` is unchanged.
+2. Event study: free-data research closed out; all eight setups (ETF and stock, plus a seeded random-signal control) rejected across 100 gate groups, with 0 provisional passes and 0 approvals. An isolated cheating positive control validated real-data wiring. Holdout remains locked and `SURVIVOR_BIASED` is unchanged.
 3. Portfolio backtest: implementation complete; synthetic acceptance passes, real-data run pending.
 4. Paper trading: implementation complete; the optimized real-data no-signal run is verified, and approvals remain empty.
 5. UI and reports: not started.
