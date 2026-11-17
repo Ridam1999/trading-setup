@@ -1,0 +1,8 @@
+# Phase 5 display limits. Research thresholds remain in gates.yaml, study.yaml,
+# and broker.yaml; these values only bound what the dashboard renders.
+default_symbol: NIFTYBEES
+min_bars: 20
+default_bars: 250
+max_bars: 2000
+table_rows: 100
+event_sample_rows: 5000

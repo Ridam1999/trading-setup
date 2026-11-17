@@ -21,6 +21,7 @@ dependencies = [
   "statsmodels==0.15.0",
   "tenacity==9.2.1",
   "typer==0.29.1",
+  "streamlit==1.67.0",
 ]
 
 [project.optional-dependencies]

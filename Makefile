@@ -23,5 +23,8 @@ backtest:
 paper:
 	uv run --no-sync nse-engine paper --help
 
-data ui:
+data:
 	@echo "This target is implemented in its corresponding project phase."
+
+ui:
+	uv run --no-sync streamlit run src/nse_engine/ui/app.py
