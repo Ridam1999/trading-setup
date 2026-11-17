@@ -26,6 +26,29 @@ Open reports/data_health.html. Critical structural errors make data check exit n
 
 The 2026-11-16 import contained 7,861,421 rows from 3,733 symbols (1995-01-02 through 2026-11-13), with 101,237 incomplete required OHLCV rows omitted from 47 files. `reports/import_skipped_rows.csv` shows the breakdown: 51,481 missing open/high/low, 31,804 missing volume, and 17,952 missing open/high/low/volume; no delivery field was a skip reason. The partitioned checker now completes in about 20 seconds and writes `reports/data_health.html` plus row-level `reports/data_health.csv`. It reports zero criticals in the post-2005 tradable scope. The >100% CCAVENUE move on 2026-10-19 was spot-checked: AvenuesAI (formerly Infibeam Avenues) executed a 10:1 share consolidation effective 2026-10-13 and resumed trading on 2026-10-19 under a new ISIN. The old close of ₹13.83 maps to roughly ₹138.30 before later price movement, matching the observed ₹135.65 open. EOD2 did not back-adjust for this consolidation, so returns spanning that date are not usable; exclude those bars or add a corporate-action adjustment before any study that includes them.
 
+## 2a. Upgrade to point-in-time, delisted-inclusive history
+
+EOD2 cannot be repaired into a PIT dataset: it drops inactive symbols and omits total-return actions. Obtain a licensed source that supplies raw bars for active **and delisted** symbols, dated membership, and every action that changes the share count or price. Keep the vendor file immutable under `data/raw/`; the commands below write derived data only to `data/adjusted/`.
+
+Three inputs are required:
+
+- **Bars** (CSV or Parquet): `symbol,date,open,high,low,close,volume`, all raw/unadjusted. Optional `close_raw`, `delivery_qty`, and `delivery_pct` columns are preserved.
+- **Actions** CSV: `symbol,ex_date,action_type,price_factor`. The factor is positive and is applied to bars **strictly before** `ex_date`; volume is divided by the same factor. Use `0.5` for a 2:1 split or 1:1 bonus and `10.0` for a 10:1 consolidation. Multiple actions on one date compound.
+- **Membership** CSV: `symbol,index_name,start_date,end_date,membership_type`, where `end_date` may be blank for active members and `membership_type` is `point_in_time` or `delisted_inclusive`.
+
+For the checked-in CCAVENUE example, the action is `CCAVENUE,2026-10-13,consolidation,10.0`: the raw close moves from about ₹102 before the event to about ₹1,020 after trading resumes on 2026-10-19; pre-event adjusted prices are multiplied by 10 and pre-event volume is divided by 10. Verify every factor against the exchange notice; the engine only checks arithmetic and return continuity.
+
+Set `corporate_actions_path` and `pit_membership_path` in `config/data.yaml`, or pass `--actions` and `--membership` explicitly:
+
+```sh
+uv run --no-sync nse-engine data import-pit --path /path/to/pit_bars.csv --actions /path/to/actions.csv --membership /path/to/membership.csv
+uv run --no-sync nse-engine data verify-pit --path /path/to/pit_bars.csv --actions /path/to/actions.csv --membership /path/to/membership.csv
+```
+
+`import-pit` stores `pit_adjusted` bars, which take precedence over EOD2 rows for the same symbol/date, and replaces the universe table with dated membership. If adjusted returns still exceed `maximum_single_day_return_pct` at an action date, it writes `reports/corporate_action_review.csv` for manual review. `verify-pit` writes `reports/pit_verification.json` with the checks, counts, disclaimer, and declared bias status; it exits non-zero when required coverage is missing. By default `require_corporate_actions` and `require_pit_membership` are true, so an incomplete claim fails loudly.
+
+Neither command edits `research.data_bias_status`. After reviewing the evidence, confirming delisted-symbol and total-return coverage, and checking the action factors against primary notices, the owner must edit `config/research.yaml` manually to `UNBIASED`, record that review and its date, then re-run the kill-stage studies on the PIT data. Earlier rejections remain logged kill-stage evidence. Until that manual review, every report stays `SURVIVOR_BIASED` and no setup can be approved.
+
 ## 3. Verify local assumptions
 
 - Current Groww charges were checked 2026-11-16 and encoded in `config/costs.yaml`: ₹20 / 0.1% brokerage with ₹5 minimum, NSE transaction charge 0.00307%, SEBI 0.0001%, IPFT 0.0001%, delivery STT 0.1% on buy and sell, buy stamp duty 0.015%, and usual male-account DP ₹20 plus GST on a qualifying sale. The model now handles per-order brokerage bounds, IPFT, and GST on DP. See Groww's [pricing page](https://groww.in/pricing) and official [NSE charges page](https://www.nseindia.com/static/invest/first-time-investor-sebi-turnover-fees-stt-other-levies). Slippage remains an assumption; confirm the exact DP/charges against your contract note.

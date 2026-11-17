@@ -7,7 +7,7 @@ Last updated: 2026-11-18
 | Phase | Status | Notes |
 | --- | --- | --- |
 | 0. Bootstrap | Complete | Configuration, CLI, logging, pinned environment, and repository setup. |
-| 1. Data | Loaded; partitioned health check complete | Imported EOD2 history through 2026-11-13: 7,861,421 rows across 3,733 symbols, 1995-01-02 onward, including NIFTYBEES. The full check completes in about 20 seconds across 32 year partitions and writes HTML plus row-level CSV. It reports zero criticals in the configured post-2005 tradable universe; 38,078 warnings remain, principally older/index-series structural issues and missing sessions. EOD2 is still survivor-biased and lacks dividend/right adjustments. |
+| 1. Data | Loaded; partitioned health check and PIT tooling complete | Imported EOD2 history through 2026-11-13: 7,861,421 rows across 3,733 symbols, 1995-01-02 onward, including NIFTYBEES. The full check completes in about 20 seconds across 32 year partitions and writes HTML plus row-level CSV. It reports zero criticals in the configured post-2005 tradable universe; 38,078 warnings remain, principally older/index-series structural issues and missing sessions. Phase 1 also adds `data import-pit`, corporate-action adjustment, dated membership loading, source priority, and `data verify-pit` with fixture tests. No licensed PIT data is supplied; EOD2 remains survivor-biased and lacks dividend/right adjustments. |
 | 2. Event study | Train/validation complete; all setups rejected | ETF and all three stock setups ran on both non-holdout splits, plus a seeded `random_signal` negative control on train. Every horizon is rejected; no setup is approved or provisionally passed under `SURVIVOR_BIASED`. The vectorized event study reduced a 3-year stock slice from 58.4s to 6.7s. Holdout was not accessed. |
 | 3. Portfolio backtest | Implementation complete; real-data run pending | Daily simulator, risk sizing, exits, metrics, walk-forward selection, stress tests, Monte Carlo, and Plotly reports are implemented. Synthetic acceptance tests pass. |
 | 4. Paper trading | Implementation complete; real-data no-signal run verified | Scanner, next-session fills, exits, SQLite ledger, deterministic markdown/JSON reports, decay monitor, and idempotent `paper run` CLI are implemented. Session bars are loaded only for the signal date and pending-order fill dates; preparing the full 7.86M-row history takes about 1.6s and materializing one session about 0.5s. The 2026-11-13 run produced a no-signal report and an idempotent second run left all artifacts byte-identical. |
@@ -16,10 +16,10 @@ Last updated: 2026-11-18
 
 ## Verification
 
-- make check: passed after the event-study and paper-run optimizations.
+- make check: passed after the event-study, paper-run, and PIT-data changes.
 - Ruff lint and formatting: passed.
-- Mypy: passed across 61 source files.
-- Pytest: 60 passed, including EOD2 import, quality checks, capped-cost hand arithmetic, bias gates, point-in-time universe ranking, vectorized fill/cost equivalence, negative-control determinism, portfolio reconciliation, and paper idempotency, no-signal, next-session fill, delayed-fill, causality, membership alignment, and decay tests.
+- Mypy: passed across 63 source files.
+- Pytest: 72 passed, including EOD2 import, quality checks, capped-cost hand arithmetic, bias gates, point-in-time universe ranking, vectorized fill/cost equivalence, negative-control determinism, portfolio reconciliation, paper idempotency, no-signal, next-session fill, delayed-fill, causality, membership alignment, and decay tests, plus 11 PIT tests covering action compounding, before-ex-date adjustment, raw-close preservation, validation, membership dates, source priority, and date-bounded reads.
 - Real-data event studies: 50 trials logged; `study report` reports 0 approved setups and 0 provisional passes.
 - Real-data paper run: `paper run --date 2026-11-13` completed with 0 signals, 0 orders, and 0 fills; both output files were byte-identical after a repeat run and the ledger still has one `runs` row.
 - Phase 3 commit: a91c999 (Implement Phase 3 portfolio backtests).
@@ -58,3 +58,5 @@ Stock kill-stage results at 2x modeled costs (ranges across the 1–20 day horiz
 ETF samples remain small: train has only 4 independent dates and validation has 27. Stock samples are larger but all setups are cost-negative in train or validation at 2x costs. None constitutes approval, and the broad history remains biased.
 
 EOD2 remains unsuitable as authoritative stock backtest history: it is not intended for backtesting, removes inactive/delisted stocks after a year, and excludes dividend/right-action adjustments. Treat failed setups on this data as kill-stage evidence only; any pass requires point-in-time, delisted-inclusive, total-return history to confirm.
+
+Phase 1 now has the import and verification path for that history, but no licensed dataset has been supplied. `data import-pit --path <raw bars> --actions <actions.csv> --membership <membership.csv>` applies configured action factors and stores dated membership; PIT bars override overlapping EOD2 rows. `data verify-pit --path <raw bars>` writes `reports/pit_verification.json` and exits non-zero when required coverage is missing. Fixture tests demonstrate the CCAVENUE 10:1 consolidation adjustment, delisted-symbol membership, and the failure path. Both commands leave `research.data_bias_status` untouched; switching to `UNBIASED` is a separate owner review recorded in `docs/REAL_DATA_RUNBOOK.md`.

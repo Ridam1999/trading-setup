@@ -36,3 +36,12 @@
 - `CCAVENUE` had a 10:1 share consolidation effective 2026-10-13, with trading resumed 2026-10-19. EOD2 did not back-adjust the bars, so returns spanning that date are excluded from interpretation.
 - The event-study fast path vectorizes the same fill and charge rules as the single-event simulator; equivalence is covered by tests, and registry trials are appended rather than overwritten.
 - Paper runs materialize session bars only for the signal date and the first observed session after each pending order. Delayed runs therefore still fill from the first session after the order date, and future bars cannot affect earlier fills.
+
+# Phase 1 point-in-time data upgrade
+
+- No licensed point-in-time (PIT), delisted-inclusive, total-return dataset is present locally. This phase adds the importer, adjustment engine, membership loader, and verification command; it does not invent new market data. `config/research.yaml` stays `SURVIVOR_BIASED` until the owner supplies and verifies real PIT data.
+- A PIT bars file contains raw OHLCV rows for every symbol it covers, including delisted symbols. Membership effective dates are supplied in a separate CSV so a symbol can enter or leave the investable universe without deleting its bars.
+- Corporate actions are supplied as a CSV with an explicit positive `price_factor` applied to all bars strictly before `ex_date`: 0.5 for a 2:1 split or 1:1 bonus, 10.0 for a 10:1 consolidation. Volume is divided by the same factor. The owner must verify each action against exchange notices; the engine only checks arithmetic and return continuity.
+- Importing PIT data into the shared store intentionally overrides overlapping EOD2 bars because `pit_adjusted` has higher source priority. EOD2 remains available as a comparison source and is never silently deleted.
+- `data verify-pit` writes evidence and fails when required PIT membership or corporate-action coverage is missing. It never edits the bias status in YAML; changing `SURVIVOR_BIASED` to `UNBIASED` remains a manual, reviewable decision.
+- Retroactive adjustment is for historical return continuity only and never creates an order. Bars on and after an ex-date keep their raw prices, and research reads remain date-bounded through `MarketDataStore.read_ohlcv_through`.

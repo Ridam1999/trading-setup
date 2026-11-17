@@ -27,6 +27,15 @@ uv run --no-sync nse-engine data summary
 
 `data import-eod2` accepts either one CSV or a directory of per-symbol CSV files. For EOD2's per-symbol files, the importer uses each filename as the symbol when no ticker column is present. `data summary` reports whether the configured benchmark (NIFTYBEES by default) was imported.
 
+The point-in-time (PIT) upgrade requires licensed inputs and never changes the bias flag by itself:
+
+```sh
+uv run --no-sync nse-engine data import-pit --path /path/to/pit_bars.csv --actions /path/to/actions.csv --membership /path/to/membership.csv
+uv run --no-sync nse-engine data verify-pit --path /path/to/pit_bars.csv
+```
+
+`import-pit` reads raw OHLCV bars (including delisted symbols), applies each CSV's positive `price_factor` to bars strictly before its `ex_date` (volume is divided by the same factor), preserves `close_raw`, and stores dated membership. Paths may instead be set as `corporate_actions_path` and `pit_membership_path` in `config/data.yaml`. PIT bars take precedence over EOD2 bars for the same symbol and date. `verify-pit` writes `reports/pit_verification.json`, exits non-zero if required coverage is missing, and never edits `research.data_bias_status`; the owner must review the evidence and change that YAML value manually. No licensed PIT dataset is supplied here, so this repository remains `SURVIVOR_BIASED`.
+
 ### Phase 2: event studies
 
 ```sh
@@ -66,7 +75,7 @@ The verified 2026-11-13 run wrote `reports/paper/paper_2026-11-13.md` and `repor
 ## Project phases
 
 0. Bootstrap: complete.
-1. Data: EOD2 market history loaded and partitioned health checks complete; source remains survivor-biased.
+1. Data: EOD2 market history loaded with partitioned health checks; PIT import, corporate-action adjustment, and verification commands added. Source remains survivor-biased until licensed PIT data is supplied and reviewed.
 2. Event study: ETF and stock train/validation studies are complete and all rejected; a seeded random-signal control also fails. Holdout remains locked.
 3. Portfolio backtest: implementation complete; synthetic acceptance passes, real-data run pending.
 4. Paper trading: implementation complete; the optimized real-data no-signal run is verified, and approvals remain empty.
