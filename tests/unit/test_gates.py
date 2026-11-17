@@ -82,9 +82,9 @@ def test_survivor_biased_data_only_allows_provisional_pass() -> None:
 
 
 def test_provisional_gates_never_approve() -> None:
-    """Even perfect kill-stage metrics cannot produce an approval."""
+    """Even perfect kill-stage metrics cannot approve, and holdout is not a failed gate."""
     metrics = _split_metrics(0.01)
-    metrics.pop("holdout")
+    metrics["holdout"]["net_return_2x_cost"] = {"expectancy": -0.01}
 
     result = evaluate_provisional_gates(
         metrics,
@@ -98,3 +98,4 @@ def test_provisional_gates_never_approve() -> None:
 
     assert result.provisional_pass
     assert not result.approved
+    assert not any(name.startswith("positive_expectancy_holdout_") for name in result.checks)

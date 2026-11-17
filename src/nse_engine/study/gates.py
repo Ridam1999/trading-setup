@@ -30,7 +30,7 @@ def evaluate_provisional_gates(
 ) -> GateResult:
     """Evaluate the kill stage, which can pass provisionally but never approve."""
     result = evaluate_setup_gates(
-        split_metrics,
+        {name: metrics for name, metrics in split_metrics.items() if name != "holdout"},
         adjusted_p_value,
         yearly,
         breadth,
@@ -39,9 +39,12 @@ def evaluate_provisional_gates(
         settings,
         data_bias_status="SURVIVOR_BIASED",
     )
-    return GateResult(
-        approved=False, provisional_pass=result.provisional_pass, checks=result.checks
-    )
+    checks = {
+        name: check
+        for name, check in result.checks.items()
+        if not name.startswith("positive_expectancy_holdout_")
+    }
+    return GateResult(approved=False, provisional_pass=result.provisional_pass, checks=checks)
 
 
 def evaluate_setup_gates(
