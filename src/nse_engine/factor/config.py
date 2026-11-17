@@ -112,10 +112,13 @@ class FactorConfig(BaseModel):
         return self
 
 
+FUNDAMENTAL_DILUTED_EPS = "trailing_12m_diluted_eps"
+FUNDAMENTAL_NET_PROFIT = "trailing_12m_net_profit"
+FUNDAMENTAL_AVERAGE_EQUITY = "average_shareholders_equity"
 FUNDAMENTAL_FIELDS: tuple[str, ...] = (
-    "trailing_12m_diluted_eps",
-    "trailing_12m_net_profit",
-    "average_shareholders_equity",
+    FUNDAMENTAL_DILUTED_EPS,
+    FUNDAMENTAL_NET_PROFIT,
+    FUNDAMENTAL_AVERAGE_EQUITY,
 )
 
 
@@ -173,6 +176,7 @@ class AcquisitionConfig(BaseModel):
     timeout_seconds: float = Field(gt=0)
     retry_attempts: int = Field(ge=1)
     exclude_symbol_pattern: str | None = None
+    exclude_symbols: list[str] = Field(default_factory=list)
 
     @field_validator("weekdays")
     @classmethod
@@ -181,6 +185,12 @@ class AcquisitionConfig(BaseModel):
         if any(day < 0 or day > 6 for day in values):
             raise ValueError("Weekdays must use Python numbering from 0 to 6")
         return sorted(set(values))
+
+    @field_validator("exclude_symbols")
+    @classmethod
+    def normalize_excluded_symbols(cls, values: list[str]) -> list[str]:
+        """Normalize explicit universe exclusions such as the benchmark ETF."""
+        return sorted({value.strip().upper() for value in values if value.strip()})
 
     @model_validator(mode="after")
     def check_dates(self) -> AcquisitionConfig:
@@ -201,6 +211,7 @@ class FactorDataConfig(BaseModel):
     announcement_index_path: Path | None = None
     fundamentals_path: Path | None = None
     membership_path: Path | None = None
+    report_path: Path = Path("reports/factor_study.html")
     acquisition: AcquisitionConfig | None = None
     fundamentals: FundamentalExtractionConfig | None = None
 

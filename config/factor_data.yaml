@@ -5,6 +5,7 @@ pit_prices_dir: data/pit/bhavcopy
 announcement_index_path: data/pit/announcement_index.parquet
 fundamentals_path: data/pit/fundamentals_announcements.parquet
 membership_path: data/pit/membership.parquet
+report_path: reports/factor_study.html
 
 acquisition:
   start_date: 2005-01-01
@@ -22,8 +23,9 @@ acquisition:
   request_delay_seconds: 0.5
   timeout_seconds: 30
   retry_attempts: 3
-  # Applied at data ingestion only; the frozen factor design is unchanged.
-  exclude_symbol_pattern: "(?:BEES|ETF|INDEX)$"
+  # Applied to universe membership only; NIFTYBEES remains in prices as benchmark.
+  exclude_symbol_pattern: "(?:ETF|INDEX)$"
+  exclude_symbols: [NIFTYBEES]
 
 # Best-effort text extraction from downloaded filings. Values are append-only
 # and announcement-dated; unparsed PDFs are reported, never silently skipped.

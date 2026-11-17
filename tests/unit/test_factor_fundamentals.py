@@ -40,7 +40,8 @@ def _settings(tmp_path: Path) -> AcquisitionConfig:
         request_delay_seconds=0,
         timeout_seconds=1,
         retry_attempts=1,
-        exclude_symbol_pattern="(?:BEES|ETF|INDEX)$",
+        exclude_symbol_pattern="(?:ETF|INDEX)$",
+        exclude_symbols=["NIFTYBEES"],
     )
 
 

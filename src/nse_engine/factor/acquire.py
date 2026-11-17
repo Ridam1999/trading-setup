@@ -172,6 +172,8 @@ def build_membership(
 ) -> Path:
     """Write PIT top-N membership snapshots from dated price files only."""
     bars = load_pit_bars(price_dir, settings.exclude_symbol_pattern)
+    if settings.exclude_symbols:
+        bars = bars.loc[~bars["symbol"].isin(settings.exclude_symbols)].copy()
     if bars.empty:
         raise ValueError(f"No dated bhavcopy files found in {price_dir}")
 
