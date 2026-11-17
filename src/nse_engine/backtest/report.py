@@ -22,6 +22,7 @@ def write_backtest_report(
     monte_carlo: dict[str, float | int],
     output_path: Path,
     survivorship_biased: bool,
+    data_bias_status: str = "SURVIVOR_BIASED",
 ) -> Path:
     """Write a self-contained HTML report with Plotly equity and drawdown charts."""
     output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -85,6 +86,7 @@ def write_backtest_report(
         "<h1>Portfolio backtest report</h1>"
         f"<p>{DISCLAIMER}</p>"
         f"<p>Survivorship-bias status: {html.escape(bias_text)}</p>"
+        f"<p>Data-bias status: {html.escape(data_bias_status)}</p>"
         f"<p>Closed trades: {len(trades)}</p>"
         f"{chart}<h2>Portfolio metrics</h2><table>{metrics_table}</table>"
         "<h2>Cost stress</h2><table><thead><tr><th>Cost multiplier</th>"

@@ -47,6 +47,21 @@ class DataConfig(BaseModel):
     holidays: list[date] = Field(default_factory=list)
 
 
+DataBiasStatus = Literal["SURVIVOR_BIASED", "UNBIASED"]
+
+
+def load_data_bias_status(config: ProjectConfig | None = None) -> DataBiasStatus:
+    """Return the declared research data-bias status, defaulting to survivor-biased."""
+    project = config or load_config()
+    document = project.documents.get("research", {})
+    status = document.get("data_bias_status", "SURVIVOR_BIASED")
+    if status == "SURVIVOR_BIASED":
+        return "SURVIVOR_BIASED"
+    if status == "UNBIASED":
+        return "UNBIASED"
+    raise ValueError("research.data_bias_status must be SURVIVOR_BIASED or UNBIASED")
+
+
 def config_directory(path: Path | None = None) -> Path:
     """Resolve the config directory from an argument, environment, or project default."""
     if path is not None:

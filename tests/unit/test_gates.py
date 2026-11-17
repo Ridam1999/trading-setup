@@ -60,3 +60,22 @@ def test_noise_result_is_rejected_with_reasons() -> None:
     assert not result.approved
     assert not result.checks["positive_expectancy_holdout_net_return_2x_cost"]["passed"]
     assert not result.checks["multiple_testing_adjusted_significance"]["passed"]
+
+
+def test_survivor_biased_data_only_allows_provisional_pass() -> None:
+    """Train and validation passes are provisional while holdout is still locked."""
+    metrics = _split_metrics(0.01)
+    metrics.pop("holdout")
+    result = evaluate_setup_gates(
+        metrics,
+        0.01,
+        _yearly(),
+        0.7,
+        [0.01, 0.02],
+        "Economic rationale.",
+        load_gate_settings(),
+        data_bias_status="SURVIVOR_BIASED",
+    )
+
+    assert result.provisional_pass
+    assert not result.approved

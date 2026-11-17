@@ -15,6 +15,7 @@ class GateResult:
     """Approval result and named gate outcomes."""
 
     approved: bool
+    provisional_pass: bool
     checks: dict[str, dict[str, Any]]
 
 
@@ -26,6 +27,7 @@ def evaluate_setup_gates(
     neighbour_expectancies: list[float],
     rationale: str,
     settings: GateSettings,
+    data_bias_status: str = "UNBIASED",
 ) -> GateResult:
     """Evaluate all configured sample-size, return, significance, breadth, and stability gates."""
     checks: dict[str, dict[str, Any]] = {}
@@ -121,7 +123,18 @@ def evaluate_setup_gates(
         True,
         "Setup YAML includes an economic rationale",
     )
+    passed = all(result["passed"] for result in checks.values())
+    provisional_checks = [
+        result
+        for name, result in checks.items()
+        if not name.startswith("positive_expectancy_holdout_")
+    ]
+    holdout_reviewed = bool(split_metrics.get("holdout"))
+    provisional = (
+        passed if holdout_reviewed else all(result["passed"] for result in provisional_checks)
+    ) and data_bias_status == "SURVIVOR_BIASED"
     return GateResult(
-        approved=all(result["passed"] for result in checks.values()),
+        approved=passed and data_bias_status == "UNBIASED",
+        provisional_pass=provisional,
         checks=checks,
     )
