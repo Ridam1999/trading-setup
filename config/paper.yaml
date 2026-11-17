@@ -1,0 +1,8 @@
+# Paper-trading settings. All behavioural thresholds live in YAML.
+reports_dir: reports/paper
+ledger_path: data/duckdb/paper.sqlite
+decay:
+  minimum_trades: 5
+  drawdown_tolerance: 1.5
+  hit_rate_tolerance: 0.7
+  consecutive_breaches: 2
