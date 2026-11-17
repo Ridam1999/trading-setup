@@ -3,7 +3,7 @@
 import pandas as pd
 
 from nse_engine.study.config import load_gate_settings
-from nse_engine.study.gates import evaluate_setup_gates
+from nse_engine.study.gates import evaluate_provisional_gates, evaluate_setup_gates
 
 
 def _split_metrics(expectancy: float) -> dict[str, dict[str, float | int]]:
@@ -75,6 +75,25 @@ def test_survivor_biased_data_only_allows_provisional_pass() -> None:
         "Economic rationale.",
         load_gate_settings(),
         data_bias_status="SURVIVOR_BIASED",
+    )
+
+    assert result.provisional_pass
+    assert not result.approved
+
+
+def test_provisional_gates_never_approve() -> None:
+    """Even perfect kill-stage metrics cannot produce an approval."""
+    metrics = _split_metrics(0.01)
+    metrics.pop("holdout")
+
+    result = evaluate_provisional_gates(
+        metrics,
+        0.01,
+        _yearly(),
+        0.7,
+        [0.01, 0.02],
+        "Economic rationale.",
+        load_gate_settings(),
     )
 
     assert result.provisional_pass

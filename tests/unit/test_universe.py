@@ -58,6 +58,14 @@ def test_liquidity_settings_follow_configured_directory(
     assert settings["excluded_symbol_pattern"] is None
 
 
+def test_provisional_universe_config_uses_top_100() -> None:
+    """The checked-in kill-stage universe is tighter than the default stock universe."""
+    settings = liquidity_universe_settings(Path("config/universe_provisional.yaml"))
+
+    assert settings["top_n"] == 100
+    assert settings["minimum_history"] == 60
+
+
 def test_liquidity_settings_reject_invalid_counts(tmp_path: Path) -> None:
     """Invalid thresholds fail before any universe scan starts."""
     config_path = tmp_path / "universe.yaml"
