@@ -1,5 +1,6 @@
 # Frozen factor-study pre-registration parameters. No data access or study code
 # may precede the committed docs/FACTOR_STUDY_PREREG.md. Do not edit after data.
+prereg_sha256: a4da9a4e768569fec0a4eee5073f9099e8b9e1c865dc6e39300d2bb7a6fcfa89
 tuition_budget_inr: 0
 
 universe:

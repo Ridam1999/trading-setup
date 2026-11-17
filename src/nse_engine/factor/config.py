@@ -1,0 +1,142 @@
+"""Validated configuration for the frozen factor-study design."""
+
+from __future__ import annotations
+
+from pathlib import Path
+from typing import Literal
+
+import yaml
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+from nse_engine.config import config_directory
+
+
+class Hypothesis(BaseModel):
+    """One pre-registered cross-sectional hypothesis."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: Literal["H1", "H2", "H3", "H4"]
+    name: str
+    definition: str
+    expected_sign: Literal["positive", "negative"]
+
+    @field_validator("definition", "name")
+    @classmethod
+    def non_empty(cls, value: str) -> str:
+        """Reject blank hypothesis text."""
+        if not value.strip():
+            raise ValueError("Hypothesis text must be non-empty")
+        return value
+
+
+class FactorUniverseConfig(BaseModel):
+    """Point-in-time universe rules."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    size: int = Field(ge=1)
+    liquidity_lookback_sessions: int = Field(ge=1)
+    exclude_index_series: bool
+    exclude_etfs: bool
+    delisted_inclusive: bool
+
+
+class FactorConstructionConfig(BaseModel):
+    """Portfolio construction rules; lags enforce causal execution."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    basket_fraction: float = Field(gt=0, le=1)
+    rebalance_frequency: Literal["monthly", "quarterly"]
+    max_one_way_turnover_fraction: float = Field(gt=0, le=1)
+    equal_weight: bool
+    signal_to_order_lag_sessions: int = Field(ge=1)
+
+
+class FundamentalsConfig(BaseModel):
+    """Announcement-dated fundamental rules."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    announcement_lag_sessions: int = Field(ge=1)
+    restatement_leak_test_required: bool
+
+
+class FactorPriceConfig(BaseModel):
+    """Momentum window and point-in-time price requirements."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    momentum_skip_recent_sessions: int = Field(ge=1)
+    momentum_lookback_sessions: int = Field(ge=1)
+    requires_pit_delisted_inclusive_prices: bool
+
+
+class FactorConfig(BaseModel):
+    """Frozen design loaded from `config/factor.yaml`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    prereg_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    tuition_budget_inr: int = Field(ge=0)
+    universe: FactorUniverseConfig
+    construction: FactorConstructionConfig
+    fundamentals: FundamentalsConfig
+    price: FactorPriceConfig
+    hypotheses: list[Hypothesis] = Field(min_length=1)
+    winsorize_fraction: float = Field(ge=0, lt=0.5)
+    benchmarks: list[str] = Field(min_length=1)
+    horizons_months: list[int] = Field(min_length=1)
+    fdr_alpha: float = Field(gt=0, lt=1)
+    minimum_independent_rebalance_dates: int = Field(ge=1)
+    cost_stress_multiplier: float = Field(ge=1)
+
+    @field_validator("horizons_months")
+    @classmethod
+    def positive_horizons(cls, values: list[int]) -> list[int]:
+        """Reject zero or negative forward horizons."""
+        if any(value < 1 for value in values):
+            raise ValueError("Horizons must be positive month counts")
+        return values
+
+    @model_validator(mode="after")
+    def check_hypotheses(self) -> FactorConfig:
+        """Require the four unique pre-registered hypotheses."""
+        if len(self.hypotheses) != 4:
+            raise ValueError("The frozen design requires exactly four hypotheses")
+        identifiers = [item.id for item in self.hypotheses]
+        if len(set(identifiers)) != len(identifiers):
+            raise ValueError("Hypothesis IDs must be unique")
+        return self
+
+
+class FactorDataConfig(BaseModel):
+    """Paths to point-in-time inputs; null means the study is not ready."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    pit_prices_dir: Path | None = None
+    announcements_path: Path | None = None
+    membership_path: Path | None = None
+
+
+def _load_yaml(path: Path) -> dict[str, object]:
+    """Load a YAML mapping from an explicit path."""
+    with path.open(encoding="utf-8") as config_file:
+        loaded = yaml.safe_load(config_file)
+    if not isinstance(loaded, dict):
+        raise ValueError(f"Expected a YAML mapping in {path}")
+    return loaded
+
+
+def load_factor_config(directory: Path | None = None) -> FactorConfig:
+    """Load and validate the frozen factor design."""
+    path = (directory or config_directory()) / "factor.yaml"
+    return FactorConfig.model_validate(_load_yaml(path))
+
+
+def load_factor_data_config(directory: Path | None = None) -> FactorDataConfig:
+    """Load and validate the point-in-time data locations."""
+    path = (directory or config_directory()) / "factor_data.yaml"
+    return FactorDataConfig.model_validate(_load_yaml(path))

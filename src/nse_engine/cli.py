@@ -49,6 +49,9 @@ from nse_engine.data.universe import (
     load_universe,
     point_in_time_liquidity_membership,
 )
+from nse_engine.factor.config import load_factor_config, load_factor_data_config
+from nse_engine.factor.readiness import DISCLAIMER as FACTOR_DISCLAIMER
+from nse_engine.factor.readiness import assess_readiness
 from nse_engine.logging_config import configure_logging
 from nse_engine.paper.config import load_approval_entries, load_paper_settings
 from nse_engine.paper.ledger import PaperLedger
@@ -75,12 +78,14 @@ data_app = typer.Typer(help="Import and inspect daily market data.")
 study_app = typer.Typer(help="Run and review rule-based event studies.")
 backtest_app = typer.Typer(help="Run daily portfolio simulations and walk-forward tests.")
 paper_app = typer.Typer(help="Run the daily paper-trading scanner and ledger.")
+factor_app = typer.Typer(help="Check readiness for the frozen factor study; never runs it.")
 logger = logging.getLogger(__name__)
 PROVISIONAL_BANNER = "SURVIVOR_BIASED: PROVISIONAL KILL STAGE; NOT APPROVAL EVIDENCE"
 app.add_typer(data_app, name="data")
 app.add_typer(study_app, name="study")
 app.add_typer(backtest_app, name="backtest")
 app.add_typer(paper_app, name="paper")
+app.add_typer(factor_app, name="factor")
 
 
 @app.callback()
@@ -113,6 +118,30 @@ def config_check(
             indent=2,
         )
     )
+
+
+@factor_app.command("check")
+def factor_check(
+    directory: Annotated[
+        Path | None, typer.Option("--directory", help="YAML config directory.")
+    ] = None,
+    prereg: Annotated[
+        Path, typer.Option("--prereg", help="Frozen pre-registration document.")
+    ] = Path("docs/FACTOR_STUDY_PREREG.md"),
+) -> None:
+    """Report whether PIT inputs and safety conditions permit a factor study."""
+    config = load_factor_config(directory)
+    data = load_factor_data_config(directory)
+    report = assess_readiness(config, data, prereg)
+    for check in report.checks:
+        state = "OK" if check.ok else "BLOCK"
+        typer.echo(f"[{state}] {check.name}: {check.detail}")
+    typer.echo(FACTOR_DISCLAIMER)
+    if report.ready:
+        typer.echo("FACTOR STUDY READY: design frozen and PIT inputs present.")
+        return
+    typer.echo(f"FACTOR STUDY BLOCKED: {', '.join(report.blockers)}", err=True)
+    raise typer.Exit(code=1)
 
 
 def _guard_provisional_split(split: SplitName, provisional: bool) -> None:

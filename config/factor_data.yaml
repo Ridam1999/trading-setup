@@ -1,0 +1,6 @@
+# Point-in-time inputs required before any factor computation may run.
+# Leave null until a real delisted-inclusive source is supplied and reviewed.
+# Paths are data locations only; no credentials belong in this file.
+pit_prices_dir: null
+announcements_path: null
+membership_path: null

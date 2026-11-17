@@ -1,4 +1,4 @@
-.PHONY: setup check test lint data study backtest paper ui
+.PHONY: setup check test lint data study backtest paper ui factor
 
 setup:
 	uv sync --extra dev --no-editable --reinstall-package nse-setup-research-engine
@@ -28,3 +28,6 @@ data:
 
 ui:
 	uv run --no-sync streamlit run src/nse_engine/ui/app.py
+
+factor:
+	uv run --no-sync nse-engine factor check
