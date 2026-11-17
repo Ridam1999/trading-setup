@@ -1,0 +1,16 @@
+name: random_signal
+universe: nse_equities
+rationale: >-
+  Negative control: seeded pseudo-random entries using the same liquidity screen as
+  stock setups, expected to have no net edge after costs. It must not be approved.
+params:
+  seed: 20261116
+  signal_probability: 0.01
+  traded_value_window: 20
+filters:
+  minimum_price: 20
+  minimum_average_traded_value: 5000000
+exit_rules:
+  stop_loss_pct: 8
+  target_pct: 15
+sweep_grid: {}

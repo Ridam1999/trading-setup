@@ -75,6 +75,9 @@ def filter_number(config: SetupConfig, name: str) -> float:
 
 def eligible_rows(frame: pd.DataFrame, config: SetupConfig) -> pd.Series:
     """Apply configured minimum price and average traded-value screens."""
+    cached = frame.get("_eligible_rows")
+    if isinstance(cached, pd.Series):
+        return cached.astype(bool)
     price_floor = filter_number(config, "minimum_price")
     traded_value_floor = filter_number(config, "minimum_average_traded_value")
     traded_value_window = int(parameter_number(config, "traded_value_window"))

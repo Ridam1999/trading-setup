@@ -1,0 +1,18 @@
+name: etf_timing
+universe: liquid_etfs
+symbols: [NIFTYBEES, BANKBEES, JUNIORBEES, LIQUIDBEES, GOLDBEES, ITBEES, PHARMABEES]
+rationale: >-
+  Test whether short-term pullbacks in diversified, liquid ETFs rebound while their
+  longer trend remains positive. This is a small ETF timing experiment, not a stock edge.
+params:
+  fall_lookback: 5
+  fall_threshold_pct: 5
+  trend_sma_length: 200
+  traded_value_window: 20
+filters:
+  minimum_price: 20
+  minimum_average_traded_value: 10000000
+exit_rules:
+  stop_loss_pct: 5
+  target_pct: 10
+sweep_grid: {}

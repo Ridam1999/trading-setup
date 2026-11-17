@@ -2,8 +2,10 @@
 
 from nse_engine.setups.base import Setup, SetupConfig
 from nse_engine.setups.breakout_52w import Breakout52Week
+from nse_engine.setups.etf_timing import ETFTiming
 from nse_engine.setups.index_dip import IndexDip
 from nse_engine.setups.pullback_uptrend import PullbackUptrend
+from nse_engine.setups.random_signal import RandomSignal
 from nse_engine.setups.vol_contraction import VolatilityContraction
 
 SETUP_REGISTRY: dict[str, type[Setup]] = {
@@ -11,6 +13,8 @@ SETUP_REGISTRY: dict[str, type[Setup]] = {
     "breakout_52w": Breakout52Week,
     "vol_contraction": VolatilityContraction,
     "index_dip": IndexDip,
+    "etf_timing": ETFTiming,
+    "random_signal": RandomSignal,
 }
 
 
