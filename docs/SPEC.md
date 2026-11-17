@@ -201,19 +201,21 @@ Daily loop, event-driven, long-only, no leverage.
 
 ## 10. Cost model
 
-Implement `costs.py` as pure functions driven by `config/costs.yaml`. The values below are **illustrative placeholders. Verify against Groww's current charge sheet and NSE and SEBI notifications before trusting any result.**
+Implement `costs.py` as pure functions driven by `config/costs.yaml`. Source rates from broker charge sheets and exchange/regulator notifications, including broker-specific minimums and caps.
 
 ```yaml
 delivery_equity:
-  brokerage_pct: 0.0        # verify with Groww
-  brokerage_flat_per_order: 0.0
-  stt_pct_buy: 0.10         # verify
-  stt_pct_sell: 0.10        # verify
-  exchange_txn_pct: 0.00297 # verify
-  sebi_fee_pct: 0.0001      # verify
-  stamp_duty_pct_buy: 0.015 # verify
-  gst_pct: 18               # applies to brokerage, exchange charges, SEBI fee
-  dp_charge_per_sell_scrip: 15.34  # verify
+  brokerage_pct: 0.1
+  brokerage_min_per_order: 5.0
+  brokerage_max_per_order: 20.0
+  stt_pct_buy: 0.10
+  stt_pct_sell: 0.10
+  exchange_txn_pct: 0.00307
+  sebi_fee_pct: 0.0001
+  ipft_fee_pct: 0.0001
+  stamp_duty_pct_buy: 0.015
+  gst_pct: 18
+  dp_charge_per_sell_scrip: 20.0
 slippage_bps: 10
 stress_multipliers: [1.0, 1.5, 2.0]
 ```
