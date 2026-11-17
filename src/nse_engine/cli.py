@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
+import duckdb
 import pandas as pd  # type: ignore[import-untyped]
 import typer
 import yaml
@@ -24,13 +25,23 @@ from nse_engine.backtest.portfolio import cost_stress_runs, monte_carlo_drawdown
 from nse_engine.backtest.report import write_backtest_report
 from nse_engine.backtest.walkforward import walk_forward_backtest
 from nse_engine.calendar import build_calendar
-from nse_engine.config import DataConfig, config_directory, load_config, load_data_config
+from nse_engine.config import (
+    DataConfig,
+    config_directory,
+    load_config,
+    load_data_bias_status,
+    load_data_config,
+)
 from nse_engine.data.adjust import attach_raw_close
-from nse_engine.data.quality import check_ohlcv, write_health_report
+from nse_engine.data.quality import QualityReport, check_ohlcv, write_health_report
 from nse_engine.data.sources.eod2_import import EOD2Source
 from nse_engine.data.sources.nselib_source import BhavcopySource, download_bhavcopy
 from nse_engine.data.store import MarketDataStore
-from nse_engine.data.universe import load_universe
+from nse_engine.data.universe import (
+    liquidity_universe_settings,
+    load_universe,
+    point_in_time_liquidity_membership,
+)
 from nse_engine.logging_config import configure_logging
 from nse_engine.paper.config import load_approval_entries, load_paper_settings
 from nse_engine.paper.ledger import PaperLedger
@@ -106,14 +117,25 @@ def _commit_import(frame: pd.DataFrame, source_label: str) -> None:
     """Persist imported bars and refresh the observed calendar."""
     invalid_rows = int(frame.attrs.get("invalid_rows_skipped", 0))
     invalid_files = int(frame.attrs.get("invalid_files_skipped", 0))
+    invalid_breakdown = frame.attrs.get("invalid_row_breakdown", [])
     store, settings = _store()
     merged = store.write_ohlcv(attach_raw_close(frame))
     store.write_calendar(build_calendar(merged, settings.holidays))
     store.write_universe(load_universe(config_directory() / "universe.yaml"))
+    if invalid_breakdown:
+        settings.reports_dir.mkdir(parents=True, exist_ok=True)
+        pd.DataFrame(invalid_breakdown).to_csv(
+            settings.reports_dir / "import_skipped_rows.csv", index=False
+        )
     logger.info("Imported %s rows from %s", len(frame), source_label)
     typer.echo(
         f"Imported {len(frame)} rows; store now contains {len(merged)} rows. "
-        f"Skipped {invalid_rows} rows with incomplete OHLCV in {invalid_files} files."
+        f"Skipped {invalid_rows} rows with incomplete required OHLCV in {invalid_files} files. "
+        + (
+            "See reports/import_skipped_rows.csv for file/year/column counts."
+            if invalid_rows
+            else ""
+        )
     )
 
 
@@ -162,25 +184,132 @@ def update_data(
 def data_check() -> None:
     """Run data-quality checks and write reports/data_health.html."""
     store, settings = _store()
-    frame = store.read_ohlcv()
-    calendar = build_calendar(frame, settings.holidays) if not frame.empty else pd.DataFrame()
-    report = check_ohlcv(
-        frame,
-        calendar,
-        settings.maximum_single_day_return_pct,
-        settings.stale_close_days,
-        settings.maximum_adjusted_raw_difference_pct,
-        settings.minimum_analysis_date,
-    )
-    universe = load_config().documents.get("universe", {})
-    biased = bool(universe.get("survivorship_biased", True))
     report_path = settings.reports_dir / "data_health.html"
-    write_health_report(report, report_path, biased)
+    config = load_config()
+    data_bias_status = load_data_bias_status(config)
+    universe_settings = liquidity_universe_settings()
+    findings: list[pd.DataFrame] = []
+    coverage: list[pd.DataFrame] = []
+    critical_failures = 0
+    total_rows = 0
+    partitions = sorted(store.adjusted_dir.glob("year=*/ohlcv.parquet"))
+    if not partitions:
+        failure = pd.DataFrame(
+            [
+                {
+                    "check": "empty_dataset",
+                    "severity": "critical",
+                    "symbol": "",
+                    "date": None,
+                    "detail": "No OHLCV partitions found",
+                }
+            ],
+            columns=["check", "severity", "symbol", "date", "detail"],
+        )
+        write_health_report(
+            QualityReport(failure, pd.DataFrame(), 1),
+            report_path,
+            data_bias_status == "SURVIVOR_BIASED",
+            data_bias_status,
+        )
+        typer.echo(f"No OHLCV partitions; wrote failure report: {report_path}")
+        raise typer.Exit(code=1)
+
+    connection = duckdb.connect()
+    try:
+        by_year = {
+            int(partition.parent.name.split("=", maxsplit=1)[1]): partition
+            for partition in partitions
+        }
+        for partition_number, partition in enumerate(partitions, start=1):
+            year = int(partition.parent.name.split("=", maxsplit=1)[1])
+            typer.echo(f"Checking year {year} ({partition_number}/{len(partitions)})...")
+            current = connection.execute("SELECT * FROM read_parquet(?)", [str(partition)]).df()
+            total_rows += len(current)
+            if current.empty:
+                continue
+            previous = by_year.get(year - 1)
+            previous_frame = (
+                connection.execute("SELECT * FROM read_parquet(?)", [str(previous)]).df()
+                if previous is not None
+                else None
+            )
+            frame = (
+                pd.concat([previous_frame, current], ignore_index=True)
+                if previous_frame is not None
+                else current
+            )
+            calendar = build_calendar(frame, settings.holidays)
+            membership = point_in_time_liquidity_membership(
+                frame,
+                int(universe_settings["top_n"]),
+                int(universe_settings["trailing_days"]),
+                float(universe_settings["minimum_price"]),
+                int(universe_settings["minimum_history"]),
+                universe_settings["excluded_symbol_pattern"],
+            )
+            liquid_symbols = set(frame.loc[membership, "symbol"].astype(str).unique())
+            report = check_ohlcv(
+                frame,
+                calendar,
+                settings.maximum_single_day_return_pct,
+                settings.stale_close_days,
+                settings.maximum_adjusted_raw_difference_pct,
+                settings.minimum_analysis_date,
+                liquid_symbols,
+                membership,
+                universe_settings["excluded_symbol_pattern"],
+            )
+            year_findings = report.findings.loc[
+                report.findings["date"].map(
+                    lambda day, expected_year=year: getattr(day, "year", expected_year)
+                    == expected_year
+                )
+            ]
+            findings.append(year_findings)
+            coverage.append(report.coverage.loc[report.coverage["year"].eq(year)])
+            critical_failures += int(year_findings["severity"].eq("critical").sum())
+    except Exception as error:
+        findings.append(
+            pd.DataFrame(
+                [
+                    {
+                        "check": "data_check_error",
+                        "severity": "critical",
+                        "symbol": "",
+                        "date": None,
+                        "detail": f"{type(error).__name__}: {error}",
+                    }
+                ],
+                columns=["check", "severity", "symbol", "date", "detail"],
+            )
+        )
+        critical_failures += 1
+    finally:
+        connection.close()
+        all_findings = (
+            pd.concat(findings, ignore_index=True)
+            if findings
+            else pd.DataFrame(columns=["check", "severity", "symbol", "date", "detail"])
+        )
+        all_coverage = (
+            pd.concat(coverage, ignore_index=True).drop_duplicates("year", keep="last")
+            if coverage
+            else pd.DataFrame(columns=["year", "symbols", "observations"])
+        )
+        all_coverage = all_coverage.sort_values("year", ignore_index=True)
+        final_report = QualityReport(all_findings, all_coverage, critical_failures)
+        write_health_report(
+            final_report,
+            report_path,
+            data_bias_status == "SURVIVOR_BIASED",
+            data_bias_status,
+        )
     typer.echo(
-        f"Rows: {len(frame)}; findings: {len(report.findings)}; "
-        f"critical failures: {report.critical_failures}; report: {report_path}"
+        f"Rows: {total_rows}; findings: {len(all_findings)}; "
+        f"critical failures: {critical_failures}; report: {report_path}"
     )
-    if report.critical_failures:
+    if critical_failures:
         raise typer.Exit(code=1)
 
 
@@ -201,6 +330,7 @@ def data_summary() -> None:
                     "symbols": 0,
                     "benchmark_symbol": benchmark,
                     "benchmark_present": False,
+                    "data_bias_status": load_data_bias_status(load_config()),
                 },
                 indent=2,
             )
@@ -213,6 +343,7 @@ def data_summary() -> None:
                 "rows": len(frame),
                 "symbols": int(frame["symbol"].nunique()),
                 "benchmark_symbol": benchmark,
+                "data_bias_status": load_data_bias_status(load_config()),
                 "benchmark_present": (
                     bool(frame["symbol"].eq(benchmark).any()) if benchmark is not None else False
                 ),
@@ -284,7 +415,8 @@ def _save_portfolio_outputs(
     if "windows" in simulation:
         simulation["windows"].to_parquet(output_dir / "windows.parquet", index=False)
     config = load_config()
-    bias = bool(config.documents.get("universe", {}).get("survivorship_biased", True))
+    data_bias_status = load_data_bias_status(config)
+    bias = data_bias_status == "SURVIVOR_BIASED"
     report_path = write_backtest_report(
         simulation["equity"],
         simulation["trades"],
@@ -293,6 +425,7 @@ def _save_portfolio_outputs(
         monte_carlo,
         output_dir / "report.html",
         bias,
+        data_bias_status,
     )
     study_settings = load_study_settings()
     registry = TrialRegistry(study_settings.trial_registry_path)
@@ -522,6 +655,19 @@ def _summarize_horizon(
     }
 
 
+def _study_warmup_bars(setup_config: SetupConfig) -> int:
+    """Return the longest declared indicator window, ignoring non-window parameters."""
+    window_names = ("lookback", "window", "length", "period", "days")
+    values = [
+        int(value)
+        for name, value in setup_config.params.items()
+        if any(part in name for part in window_names)
+        and isinstance(value, int | float)
+        and not isinstance(value, bool)
+    ]
+    return max(values, default=1)
+
+
 def _execute_study(
     setup_config: SetupConfig,
     split: SplitName,
@@ -534,8 +680,32 @@ def _execute_study(
     """Run one setup/split experiment and append one registry row per horizon."""
     frame, start, end = _study_inputs(split, unlock_holdout, registry)
     setup = create_setup(setup_config)
+    membership: pd.Series | None = None
+    if setup_config.universe == "nse_equities":
+        universe_settings = liquidity_universe_settings()
+        membership = point_in_time_liquidity_membership(
+            frame,
+            int(universe_settings["top_n"]),
+            int(universe_settings["trailing_days"]),
+            float(universe_settings["minimum_price"]),
+            int(universe_settings["minimum_history"]),
+            universe_settings["excluded_symbol_pattern"],
+        )
+    history_rows = _study_warmup_bars(setup_config)
+    history = frame.loc[frame["date"] < start].groupby("symbol", sort=False).tail(history_rows)
+    in_split = frame.loc[frame["date"] >= start]
+    frame = pd.concat([history, in_split], ignore_index=False).reset_index(drop=True)
+    if membership is not None:
+        membership = pd.Series(
+            membership.reindex(pd.concat([history, in_split], ignore_index=False).index).to_numpy(
+                dtype=bool
+            ),
+            index=frame.index,
+        )
     try:
-        events = build_event_study(frame, setup, settings, costs_config, start, end)
+        events = build_event_study(
+            frame, setup, settings, costs_config, start, end, point_in_time_membership=membership
+        )
     except Exception as error:
         for horizon in settings.horizons:
             registry.append_trial(
@@ -599,6 +769,7 @@ def study_run(
             {
                 "setup": setup_name,
                 "split": split,
+                "data_bias_status": load_data_bias_status(project_config),
                 "results": results,
                 "disclaimer": "Research output, not advice; no guarantee of profit.",
             },
@@ -650,6 +821,7 @@ def study_sweep(
             {
                 "setup": setup_name,
                 "split": split,
+                "data_bias_status": load_data_bias_status(project_config),
                 "trials": trials,
                 "disclaimer": "Research output, not advice; no guarantee of profit.",
             },
@@ -663,6 +835,8 @@ def study_report() -> None:
     """Write an HTML trial/FDR/gate report and approved-setups registry."""
     settings = load_study_settings()
     gates = load_gate_settings()
+    config = load_config()
+    data_bias_status = load_data_bias_status(config)
     registry = TrialRegistry(settings.trial_registry_path)
     rows = [row for row in registry.rows() if not row["split"].startswith("backtest:")]
     p_values: list[float] = []
@@ -714,13 +888,21 @@ def study_report() -> None:
             neighbour_values,
             rationale,
             gates,
+            data_bias_status,
+        )
+        verdict = (
+            "approved"
+            if gate_result.approved
+            else "provisional_pass"
+            if gate_result.provisional_pass
+            else "rejected"
         )
         report_rows.append(
             {
                 "setup": setup_name,
                 "params_hash": params_hash,
                 "horizon": horizon,
-                "verdict": "approved" if gate_result.approved else "rejected",
+                "verdict": verdict,
                 "adjusted_p_value": adj_p,
                 "checks": gate_result.checks,
             }
@@ -736,12 +918,7 @@ def study_report() -> None:
                     "validated_metrics": metrics_by_split,
                 }
             )
-    config = load_config()
-    universe = config.documents.get("universe", {})
-    biased = bool(universe.get("survivorship_biased", True))
-    bias_status = (
-        "static universe; survivorship bias likely" if biased else "point-in-time universe"
-    )
+    bias_status = data_bias_status.replace("_", " ").lower()
     report_path = Path("reports/study_report.html")
     report_path.parent.mkdir(parents=True, exist_ok=True)
     rows_html_parts = []
@@ -762,6 +939,7 @@ def study_report() -> None:
         "<h1>Event-study trial report</h1>"
         "<p>Research output, not advice; no guarantee of profit.</p>"
         f"<p>Survivorship-bias status: {html.escape(bias_status)}</p>"
+        f"<p>Data-bias status: {html.escape(data_bias_status)}</p>"
         f"<p>Logged trials: {registry.trial_count()}</p>"
         "<table><thead><tr><th>Setup</th><th>Horizon</th><th>Verdict</th>"
         "<th>BH adjusted p</th><th>Failed gates</th></tr></thead>"
@@ -769,10 +947,16 @@ def study_report() -> None:
     )
     report_path.write_text(html_report, encoding="utf-8")
     approval_path = config_directory() / "approved_setups.yaml"
+    if data_bias_status == "SURVIVOR_BIASED":
+        approved = []
     approval_path.write_text(
         yaml.safe_dump({"approved_setups": approved}, sort_keys=False), encoding="utf-8"
     )
-    typer.echo(f"Wrote {report_path}; approved {len(approved)} setup/horizon combinations.")
+    typer.echo(
+        f"Wrote {report_path}; data bias {data_bias_status}; "
+        f"approved {len(approved)}; provisional passes "
+        f"{sum(row['verdict'] == 'provisional_pass' for row in report_rows)}."
+    )
 
 
 def _neighbour_expectancies(
@@ -869,7 +1053,7 @@ def paper_run(
                 int(universe_settings["trailing_days"]),
                 float(universe_settings["minimum_price"]),
                 int(universe_settings["minimum_history"]),
-                str(universe_settings["excluded_symbol_pattern"]),
+                universe_settings["excluded_symbol_pattern"],
             )
         ledger = PaperLedger(paper.ledger_path)
         summary = run_paper_day(
