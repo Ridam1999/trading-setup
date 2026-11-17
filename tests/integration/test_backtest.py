@@ -22,11 +22,13 @@ def _costs() -> CostsConfig:
     return CostsConfig(
         delivery_equity=DeliveryCostRates(
             brokerage_pct=0,
-            brokerage_flat_per_order=0,
+            brokerage_min_per_order=0,
+            brokerage_max_per_order=0,
             stt_pct_buy=0,
             stt_pct_sell=0,
             exchange_txn_pct=0,
             sebi_fee_pct=0,
+            ipft_fee_pct=0,
             stamp_duty_pct_buy=0,
             gst_pct=0,
             dp_charge_per_sell_scrip=0,

@@ -14,6 +14,10 @@ import pandas as pd  # type: ignore[import-untyped]
 from nse_engine.backtest.config import BacktestSettings
 from nse_engine.backtest.costs import CostsConfig, calculate_order_cost
 from nse_engine.backtest.fills import buy_limit_fill, sell_exit_fill, time_exit_fill
+from nse_engine.data.universe import (
+    liquidity_universe_settings,
+    point_in_time_liquidity_membership,
+)
 from nse_engine.features.indicators import atr
 from nse_engine.setups.base import Setup, eligible_rows
 
@@ -83,6 +87,18 @@ def run_portfolio_backtest(
 
     bars = frame.sort_values(["date", "symbol"]).reset_index(drop=True).copy()
     bars["date"] = pd.to_datetime(bars["date"]).dt.date
+    if any(setup.config.universe == "nse_equities" for setup in setups):
+        universe_settings = liquidity_universe_settings()
+        bars["_pit_member"] = point_in_time_liquidity_membership(
+            bars,
+            int(universe_settings["top_n"]),
+            int(universe_settings["trailing_days"]),
+            float(universe_settings["minimum_price"]),
+            int(universe_settings["minimum_history"]),
+            universe_settings["excluded_symbol_pattern"],
+        ).to_numpy(dtype=bool)
+    else:
+        bars["_pit_member"] = True
     by_symbol = {
         symbol: group.sort_values("date").reset_index(drop=True)
         for symbol, group in bars.groupby("symbol")
@@ -99,7 +115,8 @@ def run_portfolio_backtest(
     for setup in setups:
         setup_key = id(setup)
         for symbol, symbol_frame in by_symbol.items():
-            eligible = eligible_rows(symbol_frame, setup.config)
+            eligible = eligible_rows(symbol_frame, setup.config) & symbol_frame["_pit_member"]
+            symbol_frame["_eligible_rows"] = eligible
             signal = setup.signals(symbol_frame).fillna(False).astype(bool) & eligible
             signals_by_symbol[(setup_key, str(symbol))] = signal
 
