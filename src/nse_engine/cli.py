@@ -49,7 +49,21 @@ from nse_engine.data.universe import (
     load_universe,
     point_in_time_liquidity_membership,
 )
-from nse_engine.factor.config import load_factor_config, load_factor_data_config
+from nse_engine.factor.acquire import (
+    DISCLAIMER as ACQUIRE_DISCLAIMER,
+)
+from nse_engine.factor.acquire import (
+    build_membership,
+    download_announcements,
+    download_bhavcopies,
+    download_filing_pdfs,
+)
+from nse_engine.factor.config import (
+    AcquisitionConfig,
+    FactorDataConfig,
+    load_factor_config,
+    load_factor_data_config,
+)
 from nse_engine.factor.readiness import DISCLAIMER as FACTOR_DISCLAIMER
 from nse_engine.factor.readiness import assess_readiness
 from nse_engine.logging_config import configure_logging
@@ -79,6 +93,7 @@ study_app = typer.Typer(help="Run and review rule-based event studies.")
 backtest_app = typer.Typer(help="Run daily portfolio simulations and walk-forward tests.")
 paper_app = typer.Typer(help="Run the daily paper-trading scanner and ledger.")
 factor_app = typer.Typer(help="Check readiness for the frozen factor study; never runs it.")
+acquire_app = typer.Typer(help="Download public PIT inputs without credentials or live orders.")
 logger = logging.getLogger(__name__)
 PROVISIONAL_BANNER = "SURVIVOR_BIASED: PROVISIONAL KILL STAGE; NOT APPROVAL EVIDENCE"
 app.add_typer(data_app, name="data")
@@ -86,6 +101,7 @@ app.add_typer(study_app, name="study")
 app.add_typer(backtest_app, name="backtest")
 app.add_typer(paper_app, name="paper")
 app.add_typer(factor_app, name="factor")
+factor_app.add_typer(acquire_app, name="acquire")
 
 
 @app.callback()
@@ -142,6 +158,102 @@ def factor_check(
         return
     typer.echo(f"FACTOR STUDY BLOCKED: {', '.join(report.blockers)}", err=True)
     raise typer.Exit(code=1)
+
+
+def _require_acquisition(data: FactorDataConfig) -> AcquisitionConfig:
+    """Return the public acquisition settings or fail with a clear message."""
+    if data.acquisition is None:
+        typer.echo("Acquisition settings are missing from config/factor_data.yaml.", err=True)
+        raise typer.Exit(code=1)
+    return data.acquisition
+
+
+def _require_data_path(value: Path | None, label: str) -> Path:
+    """Return a configured data path or fail before any network call."""
+    if value is None:
+        typer.echo(f"Missing configured path: {label}", err=True)
+        raise typer.Exit(code=1)
+    return value
+
+
+@acquire_app.command("prices")
+def acquire_prices(
+    directory: Annotated[
+        Path | None, typer.Option("--directory", help="YAML config directory.")
+    ] = None,
+) -> None:
+    """Download missing dated NSE bhavcopies into the PIT price store."""
+    data = load_factor_data_config(directory)
+    settings = _require_acquisition(data)
+    destination = _require_data_path(data.pit_prices_dir, "pit_prices_dir")
+    summary = download_bhavcopies(settings, destination)
+    typer.echo(
+        json.dumps(
+            {
+                "downloaded": [day.isoformat() for day in summary.downloaded],
+                "skipped": [day.isoformat() for day in summary.skipped],
+                "preserved": [day.isoformat() for day in summary.preserved],
+            },
+            indent=2,
+        )
+    )
+    typer.echo(ACQUIRE_DISCLAIMER)
+
+
+@acquire_app.command("membership")
+def acquire_membership(
+    directory: Annotated[
+        Path | None, typer.Option("--directory", help="YAML config directory.")
+    ] = None,
+) -> None:
+    """Build PIT top-N membership snapshots from downloaded bhavcopies."""
+    factor = load_factor_config(directory)
+    data = load_factor_data_config(directory)
+    settings = _require_acquisition(data)
+    price_dir = _require_data_path(data.pit_prices_dir, "pit_prices_dir")
+    output_path = _require_data_path(data.membership_path, "membership_path")
+    built = build_membership(factor, settings, price_dir, output_path)
+    typer.echo(json.dumps({"membership_path": str(built)}, indent=2))
+    typer.echo(ACQUIRE_DISCLAIMER)
+
+
+@acquire_app.command("announcements")
+def acquire_announcements(
+    directory: Annotated[
+        Path | None, typer.Option("--directory", help="YAML config directory.")
+    ] = None,
+) -> None:
+    """Download public announcement metadata into an appendable Parquet index."""
+    data = load_factor_data_config(directory)
+    settings = _require_acquisition(data)
+    output_path = _require_data_path(data.announcements_path, "announcements_path")
+    summary = download_announcements(settings, output_path)
+    typer.echo(
+        json.dumps(
+            {
+                "chunks": summary.chunks,
+                "rows": summary.rows,
+                "output_path": str(summary.output_path),
+            },
+            indent=2,
+        )
+    )
+    typer.echo(ACQUIRE_DISCLAIMER)
+
+
+@acquire_app.command("filings")
+def acquire_filings(
+    directory: Annotated[
+        Path | None, typer.Option("--directory", help="YAML config directory.")
+    ] = None,
+) -> None:
+    """Download linked filing PDFs listed in the announcement index."""
+    data = load_factor_data_config(directory)
+    settings = _require_acquisition(data)
+    announcements_path = _require_data_path(data.announcements_path, "announcements_path")
+    saved = download_filing_pdfs(announcements_path, settings)
+    typer.echo(json.dumps({"saved": saved, "filing_dir": str(settings.filing_dir)}, indent=2))
+    typer.echo(ACQUIRE_DISCLAIMER)
 
 
 def _guard_provisional_split(split: SplitName, provisional: bool) -> None:

@@ -1,4 +1,4 @@
-.PHONY: setup check test lint data study backtest paper ui factor
+.PHONY: setup check test lint data study backtest paper ui factor factor-acquire
 
 setup:
 	uv sync --extra dev --no-editable --reinstall-package nse-setup-research-engine
@@ -31,3 +31,6 @@ ui:
 
 factor:
 	uv run --no-sync nse-engine factor check
+
+factor-acquire:
+	uv run --no-sync nse-engine factor acquire --help

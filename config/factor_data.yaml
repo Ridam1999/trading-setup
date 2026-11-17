@@ -1,6 +1,25 @@
 # Point-in-time inputs required before any factor computation may run.
-# Leave null until a real delisted-inclusive source is supplied and reviewed.
-# Paths are data locations only; no credentials belong in this file.
-pit_prices_dir: null
-announcements_path: null
-membership_path: null
+# Paths are local data locations only; no credentials belong in this file.
+# URL templates are public NSE endpoints and may be changed if NSE moves them.
+pit_prices_dir: data/pit/bhavcopy
+announcements_path: data/pit/fundamentals_announcements.parquet
+membership_path: data/pit/membership.parquet
+
+acquisition:
+  start_date: 2005-01-01
+  end_date: 2026-11-13
+  udiff_start_date: 2024-07-01
+  session_url: https://www.nseindia.com
+  legacy_url_template: https://archives.nseindia.com/content/historical/EQUITIES/{year}/{month}/{filename}
+  udiff_url_template: https://archives.nseindia.com/products/content/sec_bhavdata_full_{compact_date}.csv
+  announcement_url_template: https://www.nseindia.com/api/corporate-announcements?index=equities&from_date={start}&to_date={end}
+  announcement_raw_dir: data/pit/announcement_json
+  filing_dir: data/pit/filings
+  # Python weekday numbers: Monday=0 through Sunday=6.
+  weekdays: [0, 1, 2, 3, 4]
+  announcement_chunk_days: 30
+  request_delay_seconds: 0.5
+  timeout_seconds: 30
+  retry_attempts: 3
+  # Applied at data ingestion only; the frozen factor design is unchanged.
+  exclude_symbol_pattern: "(?:BEES|ETF|INDEX)$"

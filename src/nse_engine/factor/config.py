@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import date
 from pathlib import Path
 from typing import Literal
 
@@ -111,14 +112,54 @@ class FactorConfig(BaseModel):
         return self
 
 
+class AcquisitionConfig(BaseModel):
+    """Public acquisition settings for the PIT input bot."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    start_date: date
+    end_date: date
+    udiff_start_date: date
+    session_url: str
+    legacy_url_template: str
+    udiff_url_template: str
+    announcement_url_template: str
+    announcement_raw_dir: Path
+    filing_dir: Path
+    weekdays: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4])
+    announcement_chunk_days: int = Field(ge=1)
+    request_delay_seconds: float = Field(ge=0)
+    timeout_seconds: float = Field(gt=0)
+    retry_attempts: int = Field(ge=1)
+    exclude_symbol_pattern: str | None = None
+
+    @field_validator("weekdays")
+    @classmethod
+    def valid_weekdays(cls, values: list[int]) -> list[int]:
+        """Reject invalid Python weekday numbers."""
+        if any(day < 0 or day > 6 for day in values):
+            raise ValueError("Weekdays must use Python numbering from 0 to 6")
+        return sorted(set(values))
+
+    @model_validator(mode="after")
+    def check_dates(self) -> AcquisitionConfig:
+        """Require an ordered, non-empty acquisition window."""
+        if self.start_date > self.end_date:
+            raise ValueError("Acquisition start_date must not exceed end_date")
+        if not self.start_date <= self.udiff_start_date <= self.end_date:
+            raise ValueError("udiff_start_date must lie inside the acquisition window")
+        return self
+
+
 class FactorDataConfig(BaseModel):
-    """Paths to point-in-time inputs; null means the study is not ready."""
+    """Paths to point-in-time inputs and their public acquisition settings."""
 
     model_config = ConfigDict(extra="forbid")
 
     pit_prices_dir: Path | None = None
     announcements_path: Path | None = None
     membership_path: Path | None = None
+    acquisition: AcquisitionConfig | None = None
 
 
 def _load_yaml(path: Path) -> dict[str, object]:

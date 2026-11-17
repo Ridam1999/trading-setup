@@ -11,7 +11,6 @@ from nse_engine.factor.config import (
     FactorConfig,
     FactorDataConfig,
     load_factor_config,
-    load_factor_data_config,
 )
 from nse_engine.factor.readiness import (
     DISCLAIMER,
@@ -49,7 +48,7 @@ def test_factor_config_rejects_non_causal_lag() -> None:
 def test_missing_pit_inputs_block_readiness(tmp_path: Path) -> None:
     """The checked-in null data paths must block any factor execution."""
     config = load_factor_config(CONFIG_DIR)
-    data = load_factor_data_config(CONFIG_DIR)
+    data = FactorDataConfig()
     report = assess_readiness(config, data, PREREG_PATH, TrialRegistry(tmp_path / "trials.sqlite"))
     assert report.ready is False
     assert {"pit_prices_dir", "announcements_path", "membership_path"}.issubset(
