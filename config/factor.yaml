@@ -1,0 +1,53 @@
+# Frozen factor-study pre-registration parameters. No data access or study code
+# may precede the committed docs/FACTOR_STUDY_PREREG.md. Do not edit after data.
+tuition_budget_inr: 0
+
+universe:
+  size: 200
+  liquidity_lookback_sessions: 60
+  exclude_index_series: true
+  exclude_etfs: true
+  delisted_inclusive: true
+
+construction:
+  basket_fraction: 0.2
+  rebalance_frequency: monthly
+  max_one_way_turnover_fraction: 0.5
+  equal_weight: true
+  signal_to_order_lag_sessions: 1
+
+fundamentals:
+  announcement_lag_sessions: 1
+  restatement_leak_test_required: true
+
+price:
+  momentum_skip_recent_sessions: 21
+  momentum_lookback_sessions: 252
+  requires_pit_delisted_inclusive_prices: true
+
+hypotheses:
+  - id: H1
+    name: value
+    definition: trailing_12m_diluted_eps / price
+    expected_sign: positive
+  - id: H2
+    name: quality
+    definition: trailing_12m_net_profit / average_shareholders_equity
+    expected_sign: positive
+  - id: H3
+    name: momentum
+    definition: close[t-21] / close[t-252] - 1
+    expected_sign: positive
+  - id: H4
+    name: composite
+    definition: equal_weight_cross_sectional_z_score(H1, H2, H3)
+    expected_sign: positive
+
+winsorize_fraction: 0.01
+benchmarks:
+  - equal_weight_pit_universe
+  - NIFTYBEES
+horizons_months: [1, 3, 6, 12]
+fdr_alpha: 0.05
+minimum_independent_rebalance_dates: 24
+cost_stress_multiplier: 2.0
