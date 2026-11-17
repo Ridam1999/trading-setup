@@ -68,6 +68,9 @@ from nse_engine.factor.config import (
 from nse_engine.factor.fundamentals import parse_filings
 from nse_engine.factor.readiness import DISCLAIMER as FACTOR_DISCLAIMER
 from nse_engine.factor.readiness import assess_readiness
+from nse_engine.factor.report import write_factor_report
+from nse_engine.factor.study import DISCLAIMER as FACTOR_STUDY_DISCLAIMER
+from nse_engine.factor.study import run_factor_study
 from nse_engine.logging_config import configure_logging
 from nse_engine.paper.config import load_approval_entries, load_paper_settings
 from nse_engine.paper.ledger import PaperLedger
@@ -94,7 +97,7 @@ data_app = typer.Typer(help="Import and inspect daily market data.")
 study_app = typer.Typer(help="Run and review rule-based event studies.")
 backtest_app = typer.Typer(help="Run daily portfolio simulations and walk-forward tests.")
 paper_app = typer.Typer(help="Run the daily paper-trading scanner and ledger.")
-factor_app = typer.Typer(help="Check readiness for the frozen factor study; never runs it.")
+factor_app = typer.Typer(help="Check readiness and run the frozen factor study; never approves.")
 acquire_app = typer.Typer(help="Download public PIT inputs without credentials or live orders.")
 logger = logging.getLogger(__name__)
 PROVISIONAL_BANNER = "SURVIVOR_BIASED: PROVISIONAL KILL STAGE; NOT APPROVAL EVIDENCE"
@@ -160,6 +163,79 @@ def factor_check(
         return
     typer.echo(f"FACTOR STUDY BLOCKED: {', '.join(report.blockers)}", err=True)
     raise typer.Exit(code=1)
+
+
+@factor_app.command("run")
+def factor_run(
+    directory: Annotated[
+        Path | None, typer.Option("--directory", help="YAML config directory.")
+    ] = None,
+    prereg: Annotated[
+        Path, typer.Option("--prereg", help="Frozen pre-registration document.")
+    ] = Path("docs/FACTOR_STUDY_PREREG.md"),
+    unlock_holdout: Annotated[
+        bool,
+        typer.Option(
+            "--unlock-holdout",
+            help="Explicitly record and read the locked holdout period.",
+        ),
+    ] = False,
+) -> None:
+    """Run the frozen study; every result is a candidate, never an approval."""
+    factor = load_factor_config(directory)
+    data = load_factor_data_config(directory)
+    settings = load_study_settings(directory)
+    gate_settings = load_gate_settings(directory)
+    costs = load_costs_config(directory)
+    registry = TrialRegistry(settings.trial_registry_path)
+    readiness = assess_readiness(factor, data, prereg, registry)
+    if not readiness.ready:
+        for check in readiness.checks:
+            if not check.ok:
+                typer.echo(f"[BLOCK] {check.name}: {check.detail}", err=True)
+        typer.echo(f"FACTOR STUDY BLOCKED: {', '.join(readiness.blockers)}", err=True)
+        typer.echo(FACTOR_DISCLAIMER)
+        raise typer.Exit(code=1)
+    if unlock_holdout:
+        typer.echo("HOLDOUT ACCESS REQUESTED; an audit row will be appended.", err=True)
+
+    output = run_factor_study(
+        factor,
+        data,
+        settings,
+        gate_settings,
+        costs,
+        registry,
+        prereg,
+        config_directory=directory,
+        include_holdout=unlock_holdout,
+    )
+    report_path = write_factor_report(
+        output,
+        data.report_path,
+        load_data_bias_status(load_config(directory)),
+        factor.prereg_sha256,
+        frozen_ok=True,
+        holdout_accessed=unlock_holdout,
+    )
+    typer.echo(
+        json.dumps(
+            {
+                "results": len(output.results),
+                "trials_appended": output.trials_appended,
+                "candidates": [
+                    f"{row.hypothesis_id}:{row.horizon_months}mo"
+                    for row in output.results
+                    if row.candidate
+                ],
+                "report_path": str(report_path),
+                "holdout_accessed": unlock_holdout,
+            },
+            indent=2,
+        )
+    )
+    typer.echo("SURVIVOR_BIASED: FACTOR RESULTS ARE CANDIDATES ONLY; NOT APPROVAL EVIDENCE")
+    typer.echo(FACTOR_STUDY_DISCLAIMER)
 
 
 def _require_acquisition(data: FactorDataConfig) -> AcquisitionConfig:
