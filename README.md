@@ -50,8 +50,12 @@ For the free-data kill stage, add `--provisional` to `study run`, `study sweep`,
 ```sh
 uv run --no-sync nse-engine study run --setup etf_timing --split train --provisional
 uv run --no-sync nse-engine study sweep --setup pullback_uptrend --split train --provisional
+uv run --no-sync nse-engine study sweep --setup delivery_spike --split train --provisional
+uv run --no-sync nse-engine study sweep --setup relative_strength_regime --split train --provisional
 uv run --no-sync nse-engine study report --provisional
 ```
+
+`delivery_spike` requires `delivery_pct`, which is null throughout the local EOD2 import; on this store it is a data-coverage rejection, not a verdict on the hypothesis. `relative_strength_regime` compares a stock's trailing return with the configured benchmark's and requires a benign benchmark regime; the benchmark close is injected by the event builder as `_benchmark_close`.
 
 Provisional mode is train/validation only: it rejects `--split holdout`, screens stock setups with the top-100 point-in-time liquidity universe in `config/universe_provisional.yaml`, and tags its registry rows so the report uses only those trials. Gates return `provisional_pass` or `rejected`, never `approved`; `approved_setups.yaml` is not written. The report is `reports/study_report_provisional.html` with a prominent `SURVIVOR_BIASED` banner. A failed setup is discarded; a pass is only a candidate for later verification.
 
