@@ -10,7 +10,7 @@ Last updated: 2026-11-16
 | 1. Data | Loaded; health review incomplete | Imported EOD2 history through 2026-11-13: 7,861,421 rows across 3,733 symbols, 1995-01-02 onward, including NIFTYBEES. Import skipped 101,237 incomplete OHLCV rows from 47 files. The full health check did not complete in a practical time; a 2025–26 slice had zero criticals but many sparse-symbol warnings and one >100% move requiring review. EOD2 itself warns its data is not intended for backtesting and omits delisted symbols after inactivity, dividends, and rights adjustments. |
 | 2. Event study | Implementation complete; real-data research blocked | Setups, statistics, gates, reports, and the audited holdout lock are implemented. Do not run studies until the data limitations and quality warnings are resolved; no approved setup file exists. |
 | 3. Portfolio backtest | Implementation complete; real-data run pending | Daily simulator, risk sizing, exits, metrics, walk-forward selection, stress tests, Monte Carlo, and Plotly reports are implemented. Synthetic acceptance tests pass. |
-| 4. Paper trading | Not started | |
+| 4. Paper trading | Implementation complete; real-data run pending | Scanner, next-session fills, exits, SQLite ledger, deterministic markdown/JSON reports, decay monitor, and idempotent `paper run` CLI are implemented. The approval registry is empty, so the current state is a verified no-signal run. |
 | 5. UI and reports | Not started | |
 | 6. Broker interface | Not started | Live order submission remains out of scope and disabled. |
 

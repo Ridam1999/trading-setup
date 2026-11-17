@@ -32,6 +32,10 @@ from nse_engine.data.sources.nselib_source import BhavcopySource, download_bhavc
 from nse_engine.data.store import MarketDataStore
 from nse_engine.data.universe import load_universe
 from nse_engine.logging_config import configure_logging
+from nse_engine.paper.config import load_approval_entries, load_paper_settings
+from nse_engine.paper.ledger import PaperLedger
+from nse_engine.paper.report import DISCLAIMER as PAPER_DISCLAIMER
+from nse_engine.paper.runner import run_paper_day
 from nse_engine.setups.base import SetupConfig, load_setup_config
 from nse_engine.setups.registry import create_setup
 from nse_engine.study.config import load_gate_settings, load_study_settings
@@ -51,10 +55,12 @@ app = typer.Typer(help="Local NSE setup research tools.")
 data_app = typer.Typer(help="Import and inspect daily market data.")
 study_app = typer.Typer(help="Run and review rule-based event studies.")
 backtest_app = typer.Typer(help="Run daily portfolio simulations and walk-forward tests.")
+paper_app = typer.Typer(help="Run the daily paper-trading scanner and ledger.")
 logger = logging.getLogger(__name__)
 app.add_typer(data_app, name="data")
 app.add_typer(study_app, name="study")
 app.add_typer(backtest_app, name="backtest")
+app.add_typer(paper_app, name="paper")
 
 
 @app.callback()
@@ -818,6 +824,75 @@ def _neighbour_expectancies(
             if {row["split"] for row in matches} >= {"train", "validation", "holdout"}:
                 neighbours.append(min(stressed))
     return neighbours
+
+
+@paper_app.command("run")
+def paper_run(
+    run_date: Annotated[
+        date | None,
+        typer.Option("--date", help="Signal date YYYY-MM-DD; defaults to the latest session."),
+    ] = None,
+    data_path: Annotated[
+        Path | None,
+        typer.Option("--data-path", exists=True, readable=True, help="Optional local bhavcopy."),
+    ] = None,
+    data_url: Annotated[
+        str | None, typer.Option("--data-url", help="Optional bhavcopy URL to import first.")
+    ] = None,
+) -> None:
+    """Run one idempotent paper-trading day and write its report and order plan."""
+    try:
+        if data_path is not None or data_url is not None:
+            update_data(path=data_path, url=data_url)
+        paper = load_paper_settings()
+        settings = load_backtest_settings()
+        costs = load_costs_config()
+        bias = load_data_bias_status(load_config())
+        approved = load_approval_entries()
+        store, _data_settings = _store()
+        frame = store.read_ohlcv()
+        if frame.empty:
+            raise ValueError("No market data is available; import data first")
+        available_dates = sorted(pd.to_datetime(frame["date"]).dt.date.unique())
+        selected = run_date or available_dates[-1]
+        if selected not in available_dates:
+            raise ValueError(f"No market data is available on {selected.isoformat()}")
+        setups = [
+            create_setup(SetupConfig.model_validate(entry["parameters"])) for entry in approved
+        ]
+        membership: pd.Series | None = None
+        if any(setup.config.universe == "nse_equities" for setup in setups):
+            universe_settings = liquidity_universe_settings()
+            membership = point_in_time_liquidity_membership(
+                frame,
+                int(universe_settings["top_n"]),
+                int(universe_settings["trailing_days"]),
+                float(universe_settings["minimum_price"]),
+                int(universe_settings["minimum_history"]),
+                str(universe_settings["excluded_symbol_pattern"]),
+            )
+        ledger = PaperLedger(paper.ledger_path)
+        summary = run_paper_day(
+            selected, frame, approved, settings, costs, paper, ledger, bias, membership
+        )
+    except (FileNotFoundError, ValueError) as error:
+        typer.echo(f"Paper run failed: {error}", err=True)
+        raise typer.Exit(code=1) from error
+    typer.echo(
+        json.dumps(
+            {
+                "run_date": summary.run_date.isoformat(),
+                "approved_setups": summary.approved_setups,
+                "signals": summary.signals_count,
+                "orders": summary.orders_count,
+                "fills": summary.fills_count,
+                "report": str(paper.reports_dir / f"paper_{selected.isoformat()}.md"),
+                "data_bias_status": bias,
+                "disclaimer": PAPER_DISCLAIMER,
+            },
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":

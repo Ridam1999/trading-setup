@@ -19,3 +19,12 @@
 - Monte Carlo resamples completed trade returns independently with replacement. It is a simple trade-sequence sensitivity summary and does not model changing market regimes or overlapping portfolio exposure.
 - A static sector map may be added to config/backtest.yaml. Symbols without a sector assignment are capped individually rather than grouped into one synthetic sector.
 - The backtest CLI permits train and validation only. Holdout remains inaccessible through the portfolio command.
+
+# Phase 4 paper-trading assumptions
+
+- Work resumed at Phase 4 because Phases 0–3 have implementations and Phases 4–6 were stubs. Phases 5 and 6 were not started.
+- A paper run date is the signal date. Signals use data through that date's close; the resulting limit orders are filled from the first available session after the signal date, so skipped calendar days catch up without reading future bars.
+- Order plans are sized at the signal close using ATR computed only from prior bars. Stops and targets are fixed when the plan is created; the fill price may differ. This keeps the JSON order plan and the ledger consistent.
+- The decay monitor uses the worst single closed-trade return as its drawdown proxy because approvals store per-trade summaries rather than an equity curve. Portfolio-level marked drawdown is shown in the report for information only.
+- `paper run` validates the data slice it consumes but does not rerun the full multi-year health report; `nse-engine data check` remains the authoritative quality gate.
+- An empty `approved_setups.yaml` is a valid no-trade state. Paper reports contain no timestamps so a repeated idempotent run reproduces identical files.

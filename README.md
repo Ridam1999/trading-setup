@@ -50,13 +50,25 @@ uv run --no-sync nse-engine backtest walk-forward --split validation
 
 Backtests read only configurations listed in config/approved_setups.yaml; generate and review that file with nse-engine study report first. Walk-forward runs use the declared setup parameter grids, choose the best Sharpe setup on each past-only training window, then test on the next window. Portfolio limits and rolling windows live in config/backtest.yaml. Each run writes a uniquely named folder under reports/ containing an HTML Plotly report and Parquet equity, order, trade, and (for walk-forward) window tables. Backtest experiments append to the same immutable SQLite trial registry.
 
+### Phase 4: paper trading
+
+Run the daily scanner after the evening data update:
+
+```sh
+uv run --no-sync nse-engine paper run
+uv run --no-sync nse-engine paper run --date 2026-11-18
+uv run --no-sync nse-engine paper run --date 2026-11-18 --data-path /path/to/bhavcopy.zip
+```
+
+`paper run` is idempotent per signal date: a repeated date re-emits the same report and JSON order plan without duplicating ledger rows. It evaluates only setups listed in `config/approved_setups.yaml`, skips setups suspended by the decay monitor, and fills pending orders from the next available session using the shared limit-order model. If no setup fires (including when the approval file is empty), it still writes a report saying so. Reports and order plans go to `reports/paper/`; the ledger is `data/duckdb/paper.sqlite`. Paths and decay thresholds live in `config/paper.yaml`. Every report carries the research disclaimer and the configured data-bias status. No broker or live-order code is involved.
+
 ## Project phases
 
 0. Bootstrap: complete.
 1. Data: implementation complete; market history not loaded.
 2. Event study: implementation complete; real-data trials and setup approvals pending.
 3. Portfolio backtest: implementation complete; synthetic acceptance passes, real-data run pending.
-4. Paper trading: not started.
+4. Paper trading: implementation complete; no-signal behavior verified, real-data run pending approvals.
 5. UI and reports: not started.
 6. Broker interface: not started; live orders remain disabled.
 
