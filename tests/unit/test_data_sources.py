@@ -35,6 +35,25 @@ def test_eod2_source_normalizes_adjusted_prices() -> None:
     assert frame["close_raw"].isna().all()
 
 
+def test_eod2_source_maps_dlv_qty_and_derives_delivery_pct() -> None:
+    """Real EOD2 headers use DLV_QTY and omit the percentage; both must survive import."""
+    frame = EOD2Source().load(FIXTURES / "eod2_dlv_sample.csv")
+
+    assert frame["symbol"].tolist() == ["EOD2_DLV_SAMPLE"] * 3
+    assert frame["delivery_qty"].tolist()[:2] == [7000, 9000]
+    assert frame["delivery_pct"].iloc[0] == pytest.approx(7000 / 12000 * 100)
+    assert frame["delivery_pct"].iloc[1] == pytest.approx(9000 / 15000 * 100)
+    assert frame["delivery_pct"].iloc[2] == pytest.approx(0.0)
+
+
+def test_explicit_delivery_pct_is_not_overwritten() -> None:
+    """A source that supplies delivery percentage directly keeps its own value."""
+    frame = EOD2Source().load(FIXTURES / "eod2_sample.csv")
+
+    assert frame["delivery_pct"].iloc[0] == pytest.approx(58.33)
+    assert frame["delivery_qty"].iloc[0] == 7000
+
+
 def test_eod2_source_imports_directory_of_symbol_files(tmp_path: Path) -> None:
     """Per-symbol files without a ticker column get their symbols from filenames."""
     (tmp_path / "reliance.csv").write_text(

@@ -25,7 +25,7 @@ uv run --no-sync nse-engine data summary
 
 `data update` also accepts `--url` or `nse_bhavcopy_url` in `config/data.yaml`; downloads retry and are written only after a non-empty response. Data is stored under `data/adjusted/` as year-partitioned Parquet and in `data/duckdb/nse.duckdb`. The health report is written to `reports/data_health.html`. For daily updates, configure a current NSE bhavcopy URL or provide a local downloaded file. Weekdays are treated as sessions except dates in `config/data.yaml` `holidays`; update that list for exchange holidays and special sessions.
 
-`data import-eod2` accepts either one CSV or a directory of per-symbol CSV files. For EOD2's per-symbol files, the importer uses each filename as the symbol when no ticker column is present. `data summary` reports whether the configured benchmark (NIFTYBEES by default) was imported.
+`data import-eod2` accepts either one CSV or a directory of per-symbol CSV files. For EOD2's per-symbol files, the importer uses each filename as the symbol when no ticker column is present. `data summary` reports whether the configured benchmark (NIFTYBEES by default) was imported. Real EOD2 daily CSVs use the `DLV_QTY` header and no delivery-percentage column; the importer maps `DLV_QTY` to `delivery_qty` and derives `delivery_pct` from the same row's volume. Delivery coverage starts in late 2019 and reaches ~96–97% from 2020 onward.
 
 The point-in-time (PIT) upgrade requires licensed inputs and never changes the bias flag by itself:
 
@@ -55,7 +55,7 @@ uv run --no-sync nse-engine study sweep --setup relative_strength_regime --split
 uv run --no-sync nse-engine study report --provisional
 ```
 
-`delivery_spike` requires `delivery_pct`, which is null throughout the local EOD2 import; on this store it is a data-coverage rejection, not a verdict on the hypothesis. `relative_strength_regime` compares a stock's trailing return with the configured benchmark's and requires a benign benchmark regime; the benchmark close is injected by the event builder as `_benchmark_close`.
+`delivery_spike` uses the delivery fields recovered from EOD2's `DLV_QTY` column; because delivery data begins only in late 2019, the locked train split (ending 2017) has no events and the setup cannot pass the two-split gates. `relative_strength_regime` compares a stock's trailing return with the configured benchmark's and requires a benign benchmark regime; the benchmark close is injected by the event builder as `_benchmark_close`.
 
 Provisional mode is train/validation only: it rejects `--split holdout`, screens stock setups with the top-100 point-in-time liquidity universe in `config/universe_provisional.yaml`, and tags its registry rows so the report uses only those trials. Gates return `provisional_pass` or `rejected`, never `approved`; `approved_setups.yaml` is not written. The report is `reports/study_report_provisional.html` with a prominent `SURVIVOR_BIASED` banner. A failed setup is discarded; a pass is only a candidate for later verification.
 

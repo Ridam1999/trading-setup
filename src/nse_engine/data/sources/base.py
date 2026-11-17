@@ -63,8 +63,8 @@ def normalize_ohlcv(
             "close_adjusted",
         ),
         "volume": ("volume", "tottrdqty", "totaltradedquantity", "ttltradgvol"),
-        "delivery_qty": ("delivery_qty", "deliverable_qty", "deliv_qty"),
-        "delivery_pct": ("delivery_pct", "deliverable_pct", "deliv_per"),
+        "delivery_qty": ("delivery_qty", "deliverable_qty", "deliv_qty", "dlv_qty"),
+        "delivery_pct": ("delivery_pct", "deliverable_pct", "deliv_per", "delivery_percentage"),
         "close_raw": ("close_raw", "raw_close"),
     }
     lookup = {str(column).strip().lower().replace(" ", ""): column for column in frame.columns}
@@ -96,6 +96,11 @@ def normalize_ohlcv(
         normalized[column] = pd.to_numeric(normalized[column], errors="coerce")
     if source == "nse_bhavcopy_raw":
         normalized["close_raw"] = normalized["close_raw"].combine_first(normalized["close"])
+    # EOD2 supplies settled quantity (DLV_QTY) but no delivery percentage. Derive
+    # the percentage from the same row's volume; this uses no future information.
+    positive_volume = normalized["volume"].where(normalized["volume"] > 0)
+    derived_pct = (normalized["delivery_qty"] / positive_volume) * 100.0
+    normalized["delivery_pct"] = normalized["delivery_pct"].combine_first(derived_pct)
     normalized["source"] = source
     normalized["ingested_at"] = pd.Timestamp.now(tz="UTC")
     normalized = normalized.loc[:, list(OHLCV_COLUMNS)]
